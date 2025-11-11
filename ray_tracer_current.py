@@ -27,12 +27,14 @@ first_samples = 100                 # number of first samples
 sym_fs = 2500                       # sampling of each symbol at 2500 Hz
 data_fs = 100.0                     # original data sampling frequency 100Hz
 ups_factor = samp_rate / data_fs    # upsampling factor to match symbol sampling
-print("Upsampling factor:", ups_factor)
+workers = 16                        # number of parallel workers
+print("Desired Upsampling factor:", ups_factor)
 ups_factor = int(ups_factor)        # integer upsampling factor
-ups_factor = 25_000_00
-print("Upsampling factor:", ups_factor)
+ups_factor = 25_000_0
+print("Used Upsampling factor:", ups_factor)
 print("number of first samples", first_samples)
 print("number of subcarriers", K)
+print("Number of workers:", workers)
 
 print(f"wavelength = {lam:.6e} m")
 print(f"delta_f = {delta_f:.3f} Hz")
@@ -94,8 +96,6 @@ def upsample_signal(first_samples, signal, factor):
     print("new shape:", new_disp_m.shape)
     return new_disp_m
 # ---------------------------------------------------
-
-
 # --------------- Calculate distance ---------------
 def dist(x1, y1, x2, y2):
 
@@ -103,7 +103,6 @@ def dist(x1, y1, x2, y2):
 
     return np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
 # ---------------------------------------------------
-
 # --------------- Calculate path length ---------------
 # Assume the chest motion is along x direction
 def chest_displacement(disp, chest_pos_x, chest_pos_y, xtx, ytx, xrx, yrx):
@@ -128,7 +127,6 @@ def chest_displacement(disp, chest_pos_x, chest_pos_y, xtx, ytx, xrx, yrx):
     print("Max, min path length change (m):", np.max(d_tot), np.min(d_tot))
     return d_tot
 # ---------------------------------------------------
-
 # ----------- calculate phase change --------------
 def compute_phase(d, f):
 
@@ -142,7 +140,6 @@ def compute_phase(d, f):
     lam = c / f
     return (2 * np.pi / lam) * d
 # ---------------------------------------------------
-
 # ----------- calculate path loss (dB) --------------
 def free_space_path_loss(d, f):
 
@@ -157,7 +154,6 @@ def free_space_path_loss(d, f):
     L_dB = 20 * np.log10(d) + 20 * np.log10(f) + 20 * np.log10(L) + 20 * np.log10(ref_cof) # reflection coefficient from human included here
     return L_dB
 # ---------------------------------------------------
-
 # ----------- calculate received power --------------
 def pw_recvd_dBm(PL_dB, t_pow):           # [W]
 
@@ -180,7 +176,6 @@ def pw_recvd_w(pw_r_dBm):
     
     return 1e-3 * np.power(10, pw_r_dBm / 10)         # W
 # ---------------------------------------------------
-
 # ---------------- noise ---------------- TO BE REPLACED WITH NOISE FACTOR AND SYSTEM TEMPERATURE   -----------
 def add_noise(pw_r_dBm, pw_r_w, t_snr_db):
     sig_avg_dB= np.mean(pw_r_dBm)               # mean singal power in dB
@@ -192,7 +187,6 @@ def add_noise(pw_r_dBm, pw_r_w, t_snr_db):
     amp_noise = np.sqrt(sig_noise_w)            # signal amplitude [sqrt(W)]
     return amp_noise
 # ---------------------------------------------------
-
 # ------------------ TX signal ---------------------
 def tx_phi_signal(data_fs, f, data_time, ups_factor):
 
@@ -294,9 +288,20 @@ def reshape_for_subcarriers(signal, fs_sym):
     a_trim = signal[:n_full]
     reshaped = a_trim.reshape(-1, fs_sym)      # shape: (n_full//K, K)
     return reshaped
-
-
-def tx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_workers=4):
+# ------------------ PARALLEL SIGNALS ---------------------
+def tx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_workers=workers):
+    """
+    Efficient parallel transmitted signal computation across multiple subcarriers.
+    Args:
+        data_fs: Sampling rate of data.
+        data_time (1D array): Time indices for the data samples.
+        f_range (1D array): Frequency range for subcarriers.
+        t_pow (float): Transmit power in dBm.
+        ups_factor: Upsampling factor.
+        n_workers (int): Number of parallel workers.
+    Returns:
+        1D array: Complex baseband transmitted signal summed over subcarriers.
+    """
     N = len(data_time)
     t = np.arange(N, dtype=np.float32)
     tx_tp_watts = 1e-3 * 10 ** (t_pow / 10)
@@ -315,10 +320,19 @@ def tx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_wor
 
     return np.sum(parts, axis=0)
 
-def rx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_workers=4):
+
+def rx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_workers=workers):
     """
     Efficient parallel received signal computation across multiple subcarriers.
-    Mirrors the style of tx_signal_sum_parallel.
+    Args:
+        data_fs: Sampling rate of data.
+        data_time (1D array): Time indices for the data samples.
+        f_range (1D array): Frequency range for subcarriers.
+        t_pow (float): Transmit power in dBm.
+        ups_factor: Upsampling factor.
+        n_workers (int): Number of parallel workers.
+    Returns:
+        1D array: Complex baseband received signal summed over subcarriers.
     """
     N = len(data_time)
 
@@ -388,14 +402,13 @@ print("tx_sig shape:", sum_tx.shape)
 
 H, h, h_max, changes = dsp(sum_tx, sum_rx)
 
-
 # ---------------- PLOTTING ---------------------
 original_time = np.arange(len(disp_m)) / data_fs / ups_factor     # time in seconds
 phi_t = compute_phase(d_tot, cf)          # phase change due to chest motion
 PL_dB = free_space_path_loss(d_tot, cf)  # path loss due to chest motion
 pw_r_dBm = pw_recvd_dBm(PL_dB, t_pow)
 pw_r_w = pw_recvd_w(pw_r_dBm)        # W
-print("h_max", h_max)
+# print("h_max", h_max)
 
 plt.plot(changes, label="periodic changes", color='purple', linewidth=1.5)
 plt.xlabel('f')
