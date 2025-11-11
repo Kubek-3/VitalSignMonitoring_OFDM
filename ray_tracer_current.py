@@ -56,7 +56,8 @@ def load_chest_motion():
     Returns:
         1D array: Preprocessed chest displacement in meters."""
     
-    mat = sio.loadmat('Free_T1''.mat')
+    mat = sio.loadmat('Multimodal chest surface motion\Free_T1'
+    '.mat')
     # Assume the chest motion is in second row; adapt key/structure as needed
     # E.g., if mat['Free_T1'] exists: disp = mat['Free_T1'][1,:].squeeze()
     # Here try common patterns:
