@@ -27,17 +27,17 @@ first_samples = 100                 # number of first samples
 sym_fs = 2500                       # sampling of each symbol at 2500 Hz
 data_fs = 100.0                     # original data sampling frequency 100Hz
 ups_factor = samp_rate / data_fs    # upsampling factor to match symbol sampling
-workers = 16                        # number of parallel workers
+workers = 8                         # number of parallel workers
 print("Desired Upsampling factor:", ups_factor)
 ups_factor = int(ups_factor)        # integer upsampling factor
-ups_factor = 25_000_0
+ups_factor = 25
 print("Used Upsampling factor:", ups_factor)
 print("number of first samples", first_samples)
 print("number of subcarriers", K)
 print("Number of workers:", workers)
 
-print(f"wavelength = {lam:.6e} m")
-print(f"delta_f = {delta_f:.3f} Hz")
+# print(f"wavelength = {lam:.6e} m")
+# print(f"delta_f = {delta_f:.3f} Hz")
 
 start = time.perf_counter()
 h_pos = [xh, yh] = [1, 2]           # human position
@@ -222,31 +222,31 @@ def tx_signal(data_fs, data_time, f, t_pow, ups_factor):
     tx = np.complex64(amp * np.exp(1j * tx_phi))
     return tx
 
-# def tx_signal_subcarriers(data_fs, f_range, sym_fs, t_pow, data_time, ups_factor):
-#     """Transmit signal over multiple subcarriers.
-#     Args:
-#         f_range (1D array): Frequency range for subcarriers.
-#         sym_fs (int): Symbol length in samples.
-#         t_pow (float): Transmit power in dBm.
-#     Returns:
-#         2D array: Transmitted signal over multiple subcarriers.
-#     """
-#     multiple_tx = np.vectorize(lambda f: tx_signal(data_fs, data_time, f, t_pow, ups_factor), otypes=[np.ndarray])(f_range)  # shape: (len(d_tot), K)
-#     sum_tx = np.sum(multiple_tx, axis=0)                 # sum over subcarriers, shape: (len(d_tot),)
-#     # Reshape into rows of length 2500
-#     # print("sum_tx shape:", sum_tx.shape)
-#     # print("sym_fs:", sym_fs)
-#     # print("type sum_tx:", type(sum_tx))
-#     # print("len sum_tx:", len(sum_tx))
-#     tx_subcarriers = reshape_for_subcarriers(sum_tx, sym_fs)
-#     return tx_subcarriers
+def tx_signal_subcarriers(data_fs, f_range, sym_fs, t_pow, data_time, ups_factor):
+    """Transmit signal over multiple subcarriers.
+    Args:
+        f_range (1D array): Frequency range for subcarriers.
+        sym_fs (int): Symbol length in samples.
+        t_pow (float): Transmit power in dBm.
+    Returns:
+        2D array: Transmitted signal over multiple subcarriers.
+    """
+    multiple_tx = np.vectorize(lambda f: tx_signal(data_fs, data_time, f, t_pow, ups_factor), otypes=[np.ndarray])(f_range)  # shape: (len(d_tot), K)
+    sum_tx = np.sum(multiple_tx, axis=0)                 # sum over subcarriers, shape: (len(d_tot),)
+    # Reshape into rows of length 2500
+    # print("sum_tx shape:", sum_tx.shape)
+    # print("sym_fs:", sym_fs)
+    # print("type sum_tx:", type(sum_tx))
+    # print("len sum_tx:", len(sum_tx))
+    tx_subcarriers = reshape_for_subcarriers(sum_tx, sym_fs)
+    return tx_subcarriers
 # -------------------------------------------------------------------
 
 # ------------ RX signal --------------
 def rx_signal(data_fs, d, f, t_pow, ups_factor):
     single_tx_phi = tx_phi_signal(data_fs, f, d, ups_factor)              # transmitted phase
     phase = compute_phase(d, f)
-    rx_phi = np.float16(single_tx_phi + phase)
+    rx_phi = np.float32(single_tx_phi + phase)
     PL_dB = free_space_path_loss(d, f)
     pw_r_dBm = pw_recvd_dBm(PL_dB, t_pow)
     pw_r_w = pw_recvd_w(pw_r_dBm)        # W
@@ -255,25 +255,25 @@ def rx_signal(data_fs, d, f, t_pow, ups_factor):
     single_rx = np.complex64(amp * np.exp(1j * rx_phi))
     return single_rx
 
-# def rx_signal_subcarriers(data_fs, f_range, sym_fs, t_pow, d, ups_factor):
-#     """Receive signal over multiple subcarriers.
-#     Args:
-#         d (1D array): Distance array.
-#         f_range (1D array): Frequency range for subcarriers.
-#         sym_fs (int): Symbol length in samples.
-#         t_pow (float): Transmit power in dBm.
-#     Returns:
-#         2D array: Received signal over multiple subcarriers.
-#     """
-#     multiple_rx = np.vectorize(lambda f: rx_signal(data_fs, d, f, t_pow, ups_factor), otypes=[np.ndarray])(f_range)  # shape: (len(d_tot), K)
-#     sum_rx = np.sum(multiple_rx, axis=0)                 # sum over subcarriers, shape: (len(d_tot),)
-#     # Reshape into rows of length 2500
-#     # print("sum_rx shape:", sum_rx.shape)
-#     # print("sym_fs:", sym_fs)
-#     # print("type sum_rx:", type(sum_rx))
-#     # print("len sum_rx:", len(sum_rx))
-#     rx_subcarriers = reshape_for_subcarriers(sum_rx, sym_fs)
-#     return rx_subcarriers
+def rx_signal_subcarriers(data_fs, f_range, sym_fs, t_pow, d, ups_factor):
+    """Receive signal over multiple subcarriers.
+    Args:
+        d (1D array): Distance array.
+        f_range (1D array): Frequency range for subcarriers.
+        sym_fs (int): Symbol length in samples.
+        t_pow (float): Transmit power in dBm.
+    Returns:
+        2D array: Received signal over multiple subcarriers.
+    """
+    multiple_rx = np.vectorize(lambda f: rx_signal(data_fs, d, f, t_pow, ups_factor), otypes=[np.ndarray])(f_range)  # shape: (len(d_tot), K)
+    sum_rx = np.sum(multiple_rx, axis=0)                 # sum over subcarriers, shape: (len(d_tot),)
+    # Reshape into rows of length 2500
+    # print("sum_rx shape:", sum_rx.shape)
+    # print("sym_fs:", sym_fs)
+    # print("type sum_rx:", type(sum_rx))
+    # print("len sum_rx:", len(sum_rx))
+    rx_subcarriers = reshape_for_subcarriers(sum_rx, sym_fs)
+    return rx_subcarriers
 # -------------------------------------------------------------------
 
 def reshape_for_subcarriers(signal, fs_sym):
@@ -382,16 +382,31 @@ d_tot = chest_displacement(disp_m, h_pos[0], h_pos[1], tx_pos[0], tx_pos[1], rx_
 
 tracemalloc.start()
 sum_tx = tx_signal_sum_parallel(data_fs, d_tot, freqs, t_pow, ups_factor)
-print("total mem for tx_sig 1024 subcarriers OPTIMIZED", tracemalloc.get_traced_memory())
+print("total mem for tx_sig 1024 subcarriers WORKERS", tracemalloc.get_traced_memory())
 # stopping the library
 tracemalloc.stop()
 
 tracemalloc.start()
 sum_rx = rx_signal_sum_parallel(data_fs, d_tot, freqs, t_pow, ups_factor)
-print("total mem for rx_sig {K} subcarriers", tracemalloc.get_traced_memory())
+print("total mem for rx_sig 1024 subcarriers WORKERS", tracemalloc.get_traced_memory())
 
 # stopping the library
 tracemalloc.stop()
+
+tracemalloc.start()
+sum_tx_v = tx_signal_subcarriers(data_fs, freqs, sym_fs, t_pow, d_tot, ups_factor)
+print("total mem for tx_sig 1024 subcarriers VECTORIZED", tracemalloc.get_traced_memory())
+# stopping the library
+tracemalloc.stop()
+
+tracemalloc.start()
+sum_rx_v = rx_signal_subcarriers(data_fs, freqs, sym_fs, t_pow, d_tot, ups_factor)
+print("total mem for rx_sig 1024 subcarriers VECTORIZED", tracemalloc.get_traced_memory())
+
+# stopping the library
+tracemalloc.stop()
+
+
 print("rx_sig shape:", sum_rx.shape)
 print("tx_sig shape:", sum_tx.shape)
 
@@ -400,6 +415,12 @@ sum_rx = reshape_for_subcarriers(sum_rx, sym_fs)
 
 print("rx_sig shape:", sum_rx.shape)
 print("tx_sig shape:", sum_tx.shape)
+print("rx_sig_v shape:", sum_rx_v.shape)
+print("tx_sig_v shape:", sum_tx_v.shape)
+
+assert np.testing.assert_almost_equal(sum_tx_v, sum_tx, decimal=1), "TX signals from parallel and vectorized do not match!"
+assert np.testing.assert_almost_equal(sum_rx_v, sum_rx, decimal=1), "RX signals from parallel and vectorized do not match!"
+
 
 H, h, h_max, changes = dsp(sum_tx, sum_rx)
 
