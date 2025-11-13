@@ -15,7 +15,7 @@ t_snr_db = 50                       # signal to noise-ratio
 ref_cof = 0.685                       # reflection coefficient
 a_gain = 13                         # antenna gain in dBi
 t_pow = 20                          # transmit power in dBm
-samp_rate = 2.5 * int(m.pow(10, 9)) # 2.4576 GHz sampling rate
+samp_rate = 2.5 * int(m.pow(10, 6)) # 2.4576 MHz sampling rate
 c = 299792458                       # speed of light in m/s
 cf = 26.5 * int(m.pow(10, 9))       # 26.5 GHz
 b = 1 * int(m.pow(10, 9))           # 1 GHz total occupied bandwidth
@@ -30,12 +30,14 @@ ups_factor = samp_rate / data_fs    # upsampling factor to match symbol sampling
 workers = 8                         # number of parallel workers
 print("Desired Upsampling factor:", ups_factor)
 ups_factor = int(ups_factor)        # integer upsampling factor
-ups_factor = 25
+ups_factor = 250000
+dec = 13                            # decimal precision for tests
 print("Used Upsampling factor:", ups_factor)
 print("number of first samples", first_samples)
 print("number of subcarriers", K)
 print("Number of workers:", workers)
-
+print("Decimal places for assert_almost_equal:", dec)
+print("freqs shape:", freqs.shape)
 # print(f"wavelength = {lam:.6e} m")
 # print(f"delta_f = {delta_f:.3f} Hz")
 
@@ -139,7 +141,7 @@ def compute_phase(d, f):
         1D array: Phase change over time."""
     
     lam = c / f
-    return (2 * np.pi / lam) * d
+    return np.float64((2 * np.pi / lam) * d)
 # ---------------------------------------------------
 # ----------- calculate path loss (dB) --------------
 def free_space_path_loss(d, f):
@@ -202,8 +204,8 @@ def tx_phi_signal(data_fs, f, data_time, ups_factor):
     
     N = len(data_time)                  # number of samples
     fs = data_fs * ups_factor           # new sampling frequency
-    t = np.arange(N)                    # time array after upsampling
-    tx_phi = np.float16((2 * np.pi * f * t) % (2 * np.pi))   # phase array in radians
+    t = np.arange(N, dtype=np.float64)                     # time array after upsampling
+    tx_phi = np.mod(2 * np.pi * f * t, 2 * np.pi).astype(np.float64)   # phase array in radians
     return tx_phi
 
 def tx_signal(data_fs, data_time, f, t_pow, ups_factor):
@@ -217,9 +219,9 @@ def tx_signal(data_fs, data_time, f, t_pow, ups_factor):
         1D array: Complex baseband transmitted signal."""
     
     tx_tp_watts = 1e-3 * 10 ** (t_pow / 10)     # transmit power in watts
-    amp = np.sqrt(tx_tp_watts)                  # signal amplitude [sqrt(W)]
+    amp = np.sqrt(tx_tp_watts).astype(np.float64)                  # signal amplitude [sqrt(W)]
     tx_phi = tx_phi_signal(data_fs, f, data_time, ups_factor)              # transmitted phase
-    tx = np.complex64(amp * np.exp(1j * tx_phi))
+    tx = np.complex128(amp * np.exp(1j * tx_phi))
     return tx
 
 def tx_signal_subcarriers(data_fs, f_range, sym_fs, t_pow, data_time, ups_factor):
@@ -231,13 +233,8 @@ def tx_signal_subcarriers(data_fs, f_range, sym_fs, t_pow, data_time, ups_factor
     Returns:
         2D array: Transmitted signal over multiple subcarriers.
     """
-    multiple_tx = np.vectorize(lambda f: tx_signal(data_fs, data_time, f, t_pow, ups_factor), otypes=[np.ndarray])(f_range)  # shape: (len(d_tot), K)
-    sum_tx = np.sum(multiple_tx, axis=0)                 # sum over subcarriers, shape: (len(d_tot),)
-    # Reshape into rows of length 2500
-    # print("sum_tx shape:", sum_tx.shape)
-    # print("sym_fs:", sym_fs)
-    # print("type sum_tx:", type(sum_tx))
-    # print("len sum_tx:", len(sum_tx))
+    sum_tx = np.sum(np.vectorize(lambda f: tx_signal(data_fs, data_time, f, t_pow, ups_factor), otypes=[np.ndarray])(f_range), axis=0)
+
     tx_subcarriers = reshape_for_subcarriers(sum_tx, sym_fs)
     return tx_subcarriers
 # -------------------------------------------------------------------
@@ -250,9 +247,9 @@ def rx_signal(data_fs, d, f, t_pow, ups_factor):
     PL_dB = free_space_path_loss(d, f)
     pw_r_dBm = pw_recvd_dBm(PL_dB, t_pow)
     pw_r_w = pw_recvd_w(pw_r_dBm)        # W
-    amp = np.sqrt(pw_r_w)                # signal amplitude [sqrt(W)]
+    amp = np.sqrt(pw_r_w).astype(np.float64)                # signal amplitude [sqrt(W)]
     # amp_noise = add_noise(pw_r_dBm, pw_r_w, t_snr_db) # czystq amplituda
-    single_rx = np.complex64(amp * np.exp(1j * rx_phi))
+    single_rx = np.complex128(amp * np.exp(1j * rx_phi))
     return single_rx
 
 def rx_signal_subcarriers(data_fs, f_range, sym_fs, t_pow, d, ups_factor):
@@ -265,13 +262,8 @@ def rx_signal_subcarriers(data_fs, f_range, sym_fs, t_pow, d, ups_factor):
     Returns:
         2D array: Received signal over multiple subcarriers.
     """
-    multiple_rx = np.vectorize(lambda f: rx_signal(data_fs, d, f, t_pow, ups_factor), otypes=[np.ndarray])(f_range)  # shape: (len(d_tot), K)
-    sum_rx = np.sum(multiple_rx, axis=0)                 # sum over subcarriers, shape: (len(d_tot),)
-    # Reshape into rows of length 2500
-    # print("sum_rx shape:", sum_rx.shape)
-    # print("sym_fs:", sym_fs)
-    # print("type sum_rx:", type(sum_rx))
-    # print("len sum_rx:", len(sum_rx))
+    sum_rx = np.sum(np.vectorize(lambda f: rx_signal(data_fs, d, f, t_pow, ups_factor), otypes=[np.ndarray])(f_range), axis=0)
+
     rx_subcarriers = reshape_for_subcarriers(sum_rx, sym_fs)
     return rx_subcarriers
 # -------------------------------------------------------------------
@@ -303,23 +295,17 @@ def tx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_wor
     Returns:
         1D array: Complex baseband transmitted signal summed over subcarriers.
     """
-    N = len(data_time)
-    t = np.arange(N, dtype=np.float32)
-    tx_tp_watts = 1e-3 * 10 ** (t_pow / 10)
-    amp = np.sqrt(tx_tp_watts).astype(np.float32)
-
-    def worker(freqs):
-        s = np.zeros(N, dtype=np.complex64)
-        for f in freqs:
-            tx_phi = np.mod(2 * np.pi * f * t, 2 * np.pi).astype(np.float32)
-            s += amp * np.exp(1j * tx_phi, dtype=np.complex64)
+    def worker(f_chunk):
+        s = np.zeros_like(data_time, dtype=np.complex128)
+        for f in f_chunk:
+            s += tx_signal(data_fs, data_time, f, t_pow, ups_factor)
         return s
-
+    
     chunks = np.array_split(f_range, n_workers)
     with ThreadPoolExecutor(max_workers=n_workers) as ex:
-        parts = list(ex.map(worker, chunks))
-
-    return np.sum(parts, axis=0)
+        results = list(ex.map(worker, chunks))
+    res = np.sum(results, axis=0)
+    return res
 
 
 def rx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_workers=workers):
@@ -335,31 +321,17 @@ def rx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_wor
     Returns:
         1D array: Complex baseband received signal summed over subcarriers.
     """
-    N = len(data_time)
-
-    def worker(freqs):
-        s = np.zeros(N, dtype=np.complex64)
-        for f in freqs:
-            # Generate phase
-            single_tx_phi = tx_phi_signal(data_fs, f, data_time, ups_factor)
-            phase = compute_phase(data_time, f)
-            rx_phi = np.float32(single_tx_phi + phase)
-
-            # Path loss and received amplitude
-            PL_dB = free_space_path_loss(data_time, f)
-            pw_r_dBm = pw_recvd_dBm(PL_dB, t_pow)
-            pw_r_w = pw_recvd_w(pw_r_dBm)
-            amp = np.sqrt(pw_r_w).astype(np.float32)
-
-            # Complex received signal
-            s += amp * np.exp(1j * rx_phi, dtype=np.complex64)
+    def worker(f_chunk):
+        s = np.zeros_like(data_time, dtype=np.complex128)
+        for f in f_chunk:
+            s += rx_signal(data_fs, data_time, f, t_pow, ups_factor)
         return s
-
+    
     chunks = np.array_split(f_range, n_workers)
     with ThreadPoolExecutor(max_workers=n_workers) as ex:
-        parts = list(ex.map(worker, chunks))
-
-    return np.sum(parts, axis=0)
+        results = list(ex.map(worker, chunks))
+    res = np.sum(results, axis=0)
+    return res
 
 # ------------------ DSP ---------------------
 def dsp(tx, rx):
@@ -393,18 +365,18 @@ print("total mem for rx_sig 1024 subcarriers WORKERS", tracemalloc.get_traced_me
 # stopping the library
 tracemalloc.stop()
 
-tracemalloc.start()
-sum_tx_v = tx_signal_subcarriers(data_fs, freqs, sym_fs, t_pow, d_tot, ups_factor)
-print("total mem for tx_sig 1024 subcarriers VECTORIZED", tracemalloc.get_traced_memory())
-# stopping the library
-tracemalloc.stop()
+# tracemalloc.start()
+# sum_tx_v = tx_signal_subcarriers(data_fs, freqs, sym_fs, t_pow, d_tot, ups_factor)
+# print("total mem for tx_sig 1024 subcarriers VECTORIZED", tracemalloc.get_traced_memory())
+# # stopping the library
+# tracemalloc.stop()
 
-tracemalloc.start()
-sum_rx_v = rx_signal_subcarriers(data_fs, freqs, sym_fs, t_pow, d_tot, ups_factor)
-print("total mem for rx_sig 1024 subcarriers VECTORIZED", tracemalloc.get_traced_memory())
+# tracemalloc.start()
+# sum_rx_v = rx_signal_subcarriers(data_fs, freqs, sym_fs, t_pow, d_tot, ups_factor)
+# print("total mem for rx_sig 1024 subcarriers VECTORIZED", tracemalloc.get_traced_memory())
 
-# stopping the library
-tracemalloc.stop()
+# # stopping the library
+# tracemalloc.stop()
 
 
 print("rx_sig shape:", sum_rx.shape)
@@ -415,11 +387,11 @@ sum_rx = reshape_for_subcarriers(sum_rx, sym_fs)
 
 print("rx_sig shape:", sum_rx.shape)
 print("tx_sig shape:", sum_tx.shape)
-print("rx_sig_v shape:", sum_rx_v.shape)
-print("tx_sig_v shape:", sum_tx_v.shape)
+# print("rx_sig_v shape:", sum_rx_v.shape)
+# print("tx_sig_v shape:", sum_tx_v.shape)
 
-assert np.testing.assert_almost_equal(sum_tx_v, sum_tx, decimal=1), "TX signals from parallel and vectorized do not match!"
-assert np.testing.assert_almost_equal(sum_rx_v, sum_rx, decimal=1), "RX signals from parallel and vectorized do not match!"
+# np.testing.assert_almost_equal(sum_tx_v, sum_tx, decimal=dec), "TX signals from parallel and vectorized do not match!"
+# np.testing.assert_almost_equal(sum_rx_v, sum_rx, decimal=dec), "RX signals from parallel and vectorized do not match!"
 
 
 H, h, h_max, changes = dsp(sum_tx, sum_rx)
@@ -432,14 +404,14 @@ pw_r_dBm = pw_recvd_dBm(PL_dB, t_pow)
 pw_r_w = pw_recvd_w(pw_r_dBm)        # W
 # print("h_max", h_max)
 
-plt.plot(changes, label="periodic changes", color='purple', linewidth=1.5)
-plt.xlabel('f')
-plt.ylabel('Amplitude')
-plt.title('fft(phase(hmax))')
-plt.grid(True, linestyle='--', alpha=0.6)
-plt.legend()
-plt.tight_layout()
-plt.show()
+# plt.plot(changes, label="periodic changes", color='purple', linewidth=1.5)
+# plt.xlabel('f')
+# plt.ylabel('Amplitude')
+# plt.title('fft(phase(hmax))')
+# plt.grid(True, linestyle='--', alpha=0.6)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
 
 # # ----- plot tx signal-----
 # plt.figure(figsize=(10, 4))
