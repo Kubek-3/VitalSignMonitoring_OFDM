@@ -23,14 +23,14 @@ lam = c / cf                        # carrier wavelength in m
 delta_f = b / K                     # Subcarrier spacing (assuming contiguous K subcarriers over bandwidth b)
 start_f = cf - delta_f * (K // 2)   # Start frequency of the first subcarrier
 freqs = start_f + delta_f * np.arange(K)  # Frequencies of each subcarrier
-first_samples = 100                 # number of first samples
+first_samples = 1000                 # number of first samples
 sym_fs = 2500                       # sampling of each symbol at 2500 Hz
 data_fs = 100.0                     # original data sampling frequency 100Hz
 ups_factor = samp_rate / data_fs    # upsampling factor to match symbol sampling
 workers = 8                         # number of parallel workers
 print("Desired Upsampling factor:", ups_factor)
 ups_factor = int(ups_factor)        # integer upsampling factor
-ups_factor = 250000
+ups_factor = 2500
 dec = 13                            # decimal precision for tests
 print("Used Upsampling factor:", ups_factor)
 print("number of first samples", first_samples)
@@ -352,57 +352,18 @@ chest_disp = load_chest_motion()
 disp_m = upsample_signal(first_samples, chest_disp, ups_factor)  # upsample to match symbol sampling rate
 d_tot = chest_displacement(disp_m, h_pos[0], h_pos[1], tx_pos[0], tx_pos[1], rx_pos[0], rx_pos[1])  # total path length with chest motion
 
-tracemalloc.start()
-sum_tx = tx_signal_sum_parallel(data_fs, d_tot, freqs, t_pow, ups_factor)
-print("total mem for tx_sig 1024 subcarriers WORKERS", tracemalloc.get_traced_memory())
-# stopping the library
-tracemalloc.stop()
-
-tracemalloc.start()
-sum_rx = rx_signal_sum_parallel(data_fs, d_tot, freqs, t_pow, ups_factor)
-print("total mem for rx_sig 1024 subcarriers WORKERS", tracemalloc.get_traced_memory())
-
-# stopping the library
-tracemalloc.stop()
-
-# tracemalloc.start()
-# sum_tx_v = tx_signal_subcarriers(data_fs, freqs, sym_fs, t_pow, d_tot, ups_factor)
-# print("total mem for tx_sig 1024 subcarriers VECTORIZED", tracemalloc.get_traced_memory())
-# # stopping the library
-# tracemalloc.stop()
-
-# tracemalloc.start()
-# sum_rx_v = rx_signal_subcarriers(data_fs, freqs, sym_fs, t_pow, d_tot, ups_factor)
-# print("total mem for rx_sig 1024 subcarriers VECTORIZED", tracemalloc.get_traced_memory())
-
-# # stopping the library
-# tracemalloc.stop()
-
-
-print("rx_sig shape:", sum_rx.shape)
-print("tx_sig shape:", sum_tx.shape)
-
-sum_tx = reshape_for_subcarriers(sum_tx, sym_fs)
-sum_rx = reshape_for_subcarriers(sum_rx, sym_fs)
-
-print("rx_sig shape:", sum_rx.shape)
-print("tx_sig shape:", sum_tx.shape)
-# print("rx_sig_v shape:", sum_rx_v.shape)
-# print("tx_sig_v shape:", sum_tx_v.shape)
-
-# np.testing.assert_almost_equal(sum_tx_v, sum_tx, decimal=dec), "TX signals from parallel and vectorized do not match!"
-# np.testing.assert_almost_equal(sum_rx_v, sum_rx, decimal=dec), "RX signals from parallel and vectorized do not match!"
-
-
-H, h, h_max, changes = dsp(sum_tx, sum_rx)
-
 # ---------------- PLOTTING ---------------------
-original_time = np.arange(len(disp_m)) / data_fs / ups_factor     # time in seconds
-phi_t = compute_phase(d_tot, cf)          # phase change due to chest motion
-PL_dB = free_space_path_loss(d_tot, cf)  # path loss due to chest motion
-pw_r_dBm = pw_recvd_dBm(PL_dB, t_pow)
-pw_r_w = pw_recvd_w(pw_r_dBm)        # W
-# print("h_max", h_max)
+original_time = np.arange(len(d_tot)) / data_fs / ups_factor        # time in seconds
+single_tx = tx_signal(data_fs, d_tot, cf, t_pow, ups_factor)        # transmitted signal
+phi_t = compute_phase(d_tot, cf)                                    # phase change due to chest motion
+PL_dB = free_space_path_loss(d_tot, cf)                             # path loss due to chest motion
+pw_r_dBm = pw_recvd_dBm(PL_dB, t_pow)                               # received power in dBm
+pw_r_w = pw_recvd_w(pw_r_dBm)                                       # received power in watts
+single_rx = rx_signal(data_fs, d_tot, cf, t_pow, ups_factor)        # received signal with chest motion
+sum_tx = tx_signal_sum_parallel(data_fs, d_tot, freqs, t_pow, ups_factor, n_workers=workers) # transmitted signal over all subcarriers
+sum_rx = rx_signal_sum_parallel(data_fs, d_tot, freqs, t_pow, ups_factor, n_workers=workers) # received signal over all subcarriers
+H, h, h_max, changes = dsp(sum_tx, sum_rx)                          # DSP processing
+print("h_max", h_max)
 
 # plt.plot(changes, label="periodic changes", color='purple', linewidth=1.5)
 # plt.xlabel('f')
