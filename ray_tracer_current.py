@@ -27,10 +27,10 @@ first_samples = 100                 # number of first samples
 sym_fs = 2500                       # sampling of each symbol at 2500 Hz
 data_fs = 100.0                     # original data sampling frequency 100Hz
 ups_factor = samp_rate / data_fs    # upsampling factor to match symbol sampling
-workers = 8                         # number of parallel workers
+workers = 4                         # number of parallel workers
 print("Desired Upsampling factor:", ups_factor)
 ups_factor = int(ups_factor)        # integer upsampling factor
-ups_factor = 250
+ups_factor = 2500
 dec = 13                            # decimal precision for tests
 print("Used Upsampling factor:", ups_factor)
 print("number of first samples", first_samples)
@@ -307,6 +307,20 @@ def tx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_wor
     res = np.sum(results, axis=0)
     return res
 
+def tx_vectorized_signal_sum(data_fs, data_time, f_range, t_pow, ups_factor):
+    """
+    Vectorized transmitted signal computation across multiple subcarriers.
+    Args:
+        data_fs: Sampling rate of data.
+        data_time (1D array): Time indices for the data samples.
+        f_range (1D array): Frequency range for subcarriers.
+        t_pow (float): Transmit power in dBm.
+        ups_factor: Upsampling factor.
+    Returns:
+        1D array: Complex baseband transmitted signal summed over subcarriers.
+    """
+    sum_tx = np.sum(np.vectorize(lambda f: tx_signal(data_fs, data_time, f, t_pow, ups_factor), otypes=[np.ndarray])(f_range), axis=0)
+    return sum_tx
 
 def rx_signal_sum_parallel(data_fs, data_time, f_range, t_pow, ups_factor, n_workers=workers):
     """
@@ -361,66 +375,259 @@ pw_r_dBm = pw_recvd_dBm(PL_dB, t_pow)                               # received p
 pw_r_w = pw_recvd_w(pw_r_dBm)                                       # received power in watts
 single_rx = rx_signal(data_fs, d_tot, cf, t_pow, ups_factor)        # received signal with chest motion
 sum_tx = tx_signal_sum_parallel(data_fs, d_tot, freqs, t_pow, ups_factor, n_workers=workers) # transmitted signal over all subcarriers
-res_sum_tx = reshape_for_subcarriers(sum_tx, sym_fs)
-sum_rx = rx_signal_sum_parallel(data_fs, d_tot, freqs, t_pow, ups_factor, n_workers=workers) # received signal over all subcarriers
-res_sum_rx = reshape_for_subcarriers(sum_rx, sym_fs)
-H, h, h_max, changes = dsp(res_sum_tx, res_sum_rx)                          # DSP processing
+# res_sum_tx = reshape_for_subcarriers(sum_tx, sym_fs)
+# sum_rx = rx_signal_sum_parallel(data_fs, d_tot, freqs, t_pow, ups_factor, n_workers=workers) # received signal over all subcarriers
+# res_sum_rx = reshape_for_subcarriers(sum_rx, sym_fs)
+# H, h, h_max, changes = dsp(res_sum_tx, res_sum_rx)                          # DSP processing
 
-TX = np.fft.fft(res_sum_tx, axis=1)
+def generate_tx_ofdm_baseband(data_fs, ups_factor, N, freqs, t_pow, cf):
+    """
+    Generate baseband OFDM transmit signal for all subcarriers.
 
-# 4) Average magnitude across symbols and convert to dB
-tx_mag = np.mean(np.abs(TX[:, :K]), axis=0)
-tx_mag_db = 20 * np.log10(tx_mag + 1e-12)
+    Returns:
+        tx_bb : np.ndarray, shape (K, N)
+            Complex baseband signal per subcarrier.
+        freqs_bb : np.ndarray, shape (K,)
+            Baseband subcarrier frequencies (Hz), centered around 0.
+    """
+    fs_eff = data_fs * ups_factor          # effective sampling rate (Hz)
+    K = len(freqs)                         # number of subcarriers
+    n = np.arange(N, dtype=np.float64)     # sample index
 
-# 5) Plot magnitude (dB) vs subcarrier frequencies (GHz)
+    # Total TX power
+    Ptx_W = 1e-3 * 10**(t_pow / 10.0)      # W
+
+    # Optional: normalize per subcarrier so total power stays Ptx_W
+    amp = np.sqrt(Ptx_W) / np.sqrt(K)      # sqrt(W), per-subcarrier amplitude
+
+    # Baseband subcarrier frequencies (offset from carrier)
+    freqs_bb = freqs - cf                  # Hz, centered around 0
+
+    # Digital angular frequency (rad/sample) for each subcarrier
+    omega = 2.0 * np.pi * freqs_bb / fs_eff   # shape (K,)
+
+    # Phase matrix: (K, N)
+    phase_tx = omega[:, None] * n[None, :]     # outer product
+
+    # Complex baseband TX per subcarrier: (K, N)
+    tx_bb = amp * np.exp(1j * phase_tx)
+
+    return tx_bb, freqs_bb
+
+
+def generate_rx_ofdm_baseband(d_tot, freqs, data_fs, ups_factor, t_pow, cf):
+    """
+    Generate baseband OFDM received signal for all subcarriers,
+    including chest-motion-induced phase and free-space path loss.
+
+    Args:
+        d_tot : 1D array of length N
+            Time-varying total path length (Tx -> chest -> Rx) [m].
+        freqs : 1D array of length K
+            Absolute RF frequencies of subcarriers [Hz].
+    Returns:
+        rx_bb : np.ndarray, shape (K, N)
+            Complex baseband received signal per subcarrier.
+    """
+    N = len(d_tot)
+    K = len(freqs)
+    fs_eff = data_fs * ups_factor
+
+    n = np.arange(N, dtype=np.float64)
+
+    # ---------- Transmit baseband (same as in TX) ----------
+    Ptx_W = 1e-3 * 10**(t_pow / 10.0)
+    amp_tx = np.sqrt(Ptx_W) / np.sqrt(K)
+
+    freqs_bb = freqs - cf
+    omega = 2.0 * np.pi * freqs_bb / fs_eff
+    phase_tx = omega[:, None] * n[None, :]       # (K, N)
+
+    # ---------- Channel: path loss + chest motion phase ----------
+    # Broadcast shapes: f -> (K,1), d -> (1,N)
+    f = freqs[:, None]               # (K,1)
+    d = d_tot[None, :]               # (1,N)
+
+    lam = c / f                      # wavelength per subcarrier (K,1)
+
+    # Chest-motion phase per subcarrier & time
+    phi_chest = (2.0 * np.pi / lam) * d    # (K, N)
+
+    # Free-space path loss with reflection coefficient
+    L_const = 20.0 * np.log10(4.0 * np.pi / c) + 20.0 * np.log10(ref_cof)
+    PL_dB = 20.0 * np.log10(d) + 20.0 * np.log10(f) + L_const  # (K, N)
+
+    # Received power
+    Pw_r_dBm = t_pow - PL_dB
+    Pw_r_W = 1e-3 * 10.0**(Pw_r_dBm / 10.0)       # (K, N)
+    amp_rx = np.sqrt(Pw_r_W)                      # sqrt(W), (K, N)
+
+    # ---------- Combine TX phase + channel phase ----------
+    phase_rx = phase_tx + phi_chest               # (K, N)
+    rx_bb = amp_rx * np.exp(1j * phase_rx)        # (K, N)
+
+    return rx_bb
+
+
+fs_eff = data_fs * ups_factor
+N = len(d_tot)
+
+# --- TX: OFDM baseband ---
+tx_bb, freqs_bb = generate_tx_ofdm_baseband(
+    data_fs=data_fs,
+    ups_factor=ups_factor,
+    N=N,
+    freqs=freqs,   # your absolute RF freqs array
+    t_pow=t_pow,
+    cf=cf
+)
+# Sum across subcarriers to get composite TX waveform
+sum_tx = tx_bb.sum(axis=0)    # shape (N,)
+
+# --- RX: OFDM baseband with chest motion ---
+rx_bb = generate_rx_ofdm_baseband(
+    d_tot=d_tot,
+    freqs=freqs,
+    data_fs=data_fs,
+    ups_factor=ups_factor,
+    t_pow=t_pow,
+    cf=cf
+)
+sum_rx = rx_bb.sum(axis=0)    # shape (N,)
+
+# FFT
+N = len(sum_tx)
+TX_f = np.fft.fft(sum_tx)
+TX_mag = np.abs(TX_f)
+
+# Frequency axis in Hz
+freq_axis = np.fft.fftfreq(N, d=1/fs_eff)
+
+# Shift for nicer centered plot
+TX_mag_shift = np.fft.fftshift(TX_mag)
+freq_axis_shift = np.fft.fftshift(freq_axis)
+
+# ---- Plot (linear magnitude) ----
+plt.figure(figsize=(10,4))
+plt.plot(freq_axis_shift, TX_mag_shift)
+plt.title("TX Signal Spectrum (Magnitude)")
+plt.xlabel("Frequency (Hz)")
+plt.ylabel("|FFT|")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# ---- Plot in dB ----
+plt.figure(figsize=(10,4))
+plt.plot(freq_axis_shift, 20*np.log10(TX_mag_shift + 1e-12))
+plt.title("TX Signal Spectrum (dB)")
+plt.xlabel("Frequency (Hz)")
+plt.ylabel("Magnitude (dB)")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(10, 4))
+plt.plot(np.abs(sum_tx), label='TX |sum of subcarriers|')
+plt.xlabel('Sample index')
+plt.ylabel('Amplitude (sqrt(W))')
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.legend()
+plt.show()
+
+plt.figure(figsize=(10, 4))
+plt.plot(20*np.log10(np.abs(sum_tx) + 1e-12), label='TX (dB)')
+plt.xlabel('Sample index')
+plt.ylabel('Amplitude (dB)')
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.legend()
+plt.show()
+
+plt.figure(figsize=(10, 4))
+plt.plot(np.abs(sum_rx), label='RX |sum of subcarriers|')
+plt.xlabel('Sample index')
+plt.ylabel('Amplitude (sqrt(W))')
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.legend()
+plt.show()
+
+
+plt.figure(figsize=(10, 4))
+plt.plot(20*np.log10(np.abs(sum_rx) + 1e-12), label='RX (dB)')
+plt.xlabel('Sample index')
+plt.ylabel('Amplitude (dB)')
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.legend()
+plt.show()
+
+fs_eff = data_fs * ups_factor  # 2500 Hz
+n = np.arange(sym_fs)          # 2500 samples
+t = n / fs_eff                 # time grid
+E = np.exp(-1j * 2*np.pi * np.outer(freqs, t))   # (K, 2500)
+X = reshape_for_subcarriers(sum_rx, sym_fs)  # shape (Nsym, 2500)
+
+TXk = X @ E.T      # shape (Nsym, K)
+
+mag = np.mean(np.abs(TXk), axis=0)
+mag_db = 20*np.log10(mag + 1e-12)
+
+
+
 plt.figure(figsize=(10,5))
-plt.plot(freqs * 1e-9, tx_mag_db, lw=1.5)
+plt.plot(freqs * 1e-9, mag_db, lw=1.5)
 plt.title("Subcarrier Magnitude")
 plt.xlabel("Frequency [GHz]")
 plt.ylabel("Magnitude [dB]")
 plt.grid(True)
 plt.show()
 
-# -----------------Plot chest motion ---------------
-plt.figure(figsize=(10, 4))
-plt.plot(original_time, disp_m, label='Chest displacement', linewidth=1.5)
-plt.xlabel('Time (s)')
-plt.ylabel('Displacement (mm)')
-plt.title('Chest Surface Motion (Free T2)')
-plt.grid(True, linestyle='--', alpha=0.6)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# ---------------------------------------------------
 
-# --------------- Plot path length ---------------
-plt.figure(figsize=(10, 4))
-plt.plot(original_time, d_tot, label='Total Path Length', color='orange', linewidth=1.5)
-plt.xlabel('Time (s)')
-plt.ylabel('Path Length (m)')
-plt.title('Total Path Length Variation Due to Chest Motion')
-plt.grid(True, linestyle='--', alpha=0.6)
-plt.legend()
-plt.ylim(5.5, 5.7)
-plt.tight_layout()
-plt.show()
-# ---------------------------------------------------
 
-# --------------- Plot phase change ---------------
-plt.figure(figsize=(10, 4))
-plt.plot(original_time, phi_t, label='Chest Phase (wrapped)', linewidth=1.5)
-plt.xlabel('Time (s)')
-plt.ylabel('Phase (rad)')
-plt.title('Phase Change Due to Chest Motion')
-plt.grid(True, linestyle='--', alpha=0.6)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# ---------------------------------------------------
 
-# # --------------- Plot unwrapped phase change ---------------
+
+# TX = np.fft.fft(res_sum_tx, axis=1)
+
+# # 4) Average magnitude across symbols and convert to dB
+# tx_mag = np.mean(np.abs(TX[:, :K]), axis=0)
+# tx_mag_db = 20 * np.log10(tx_mag + 1e-12)
+
+# # 5) Plot magnitude (dB) vs subcarrier frequencies (GHz)
+# plt.figure(figsize=(10,5))
+# plt.plot(freqs * 1e-9, tx_mag_db, lw=1.5)
+# plt.title("Subcarrier Magnitude")
+# plt.xlabel("Frequency [GHz]")
+# plt.ylabel("Magnitude [dB]")
+# plt.grid(True)
+# plt.show()
+
+# # -----------------Plot chest motion ---------------
 # plt.figure(figsize=(10, 4))
-# plt.plot(original_time, phi_t_unw, label='Chest Phase (unwrapped)', linewidth=1.5)
+# plt.plot(original_time, disp_m, label='Chest displacement', linewidth=1.5)
+# plt.xlabel('Time (s)')
+# plt.ylabel('Displacement (mm)')
+# plt.title('Chest Surface Motion (Free T2)')
+# plt.grid(True, linestyle='--', alpha=0.6)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
+# # ---------------------------------------------------
+
+# # --------------- Plot path length ---------------
+# plt.figure(figsize=(10, 4))
+# plt.plot(original_time, d_tot, label='Total Path Length', color='orange', linewidth=1.5)
+# plt.xlabel('Time (s)')
+# plt.ylabel('Path Length (m)')
+# plt.title('Total Path Length Variation Due to Chest Motion')
+# plt.grid(True, linestyle='--', alpha=0.6)
+# plt.legend()
+# plt.ylim(5.5, 5.7)
+# plt.tight_layout()
+# plt.show()
+# # ---------------------------------------------------
+
+# # --------------- Plot phase change ---------------
+# plt.figure(figsize=(10, 4))
+# plt.plot(original_time, phi_t, label='Chest Phase (wrapped)', linewidth=1.5)
 # plt.xlabel('Time (s)')
 # plt.ylabel('Phase (rad)')
 # plt.title('Phase Change Due to Chest Motion')
@@ -430,70 +637,82 @@ plt.show()
 # plt.show()
 # # ---------------------------------------------------
 
-# ----------------- Plot path loss ---------------
-plt.figure(figsize=(10, 4))
-plt.plot(original_time, PL_dB, label='Chest Path Loss', color='blue', linewidth=1.5)
-plt.xlabel('Time (s)')
-plt.ylabel('Path Loss (dB)')
-plt.title('Free-Space Path Loss vs Time')
-plt.grid(True, linestyle='--', alpha=0.6)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# ---------------------------------------------------
+# # # --------------- Plot unwrapped phase change ---------------
+# # plt.figure(figsize=(10, 4))
+# # plt.plot(original_time, phi_t_unw, label='Chest Phase (unwrapped)', linewidth=1.5)
+# # plt.xlabel('Time (s)')
+# # plt.ylabel('Phase (rad)')
+# # plt.title('Phase Change Due to Chest Motion')
+# # plt.grid(True, linestyle='--', alpha=0.6)
+# # plt.legend()
+# # plt.tight_layout()
+# # plt.show()
+# # # ---------------------------------------------------
 
-# --------------- Plot received power and amplitude ---------------
-plt.figure(figsize=(10, 4))
-plt.plot(original_time, pw_r_w, label='Received Power', color='green', linewidth=1.5)
-plt.xlabel('Time (s)')
-plt.ylabel('Received Power (dBm)')
-plt.title('Received Power vs Time')
-plt.grid(True, linestyle='--', alpha=0.6)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# ---------------------------------------------------
+# # ----------------- Plot path loss ---------------
+# plt.figure(figsize=(10, 4))
+# plt.plot(original_time, PL_dB, label='Chest Path Loss', color='blue', linewidth=1.5)
+# plt.xlabel('Time (s)')
+# plt.ylabel('Path Loss (dB)')
+# plt.title('Free-Space Path Loss vs Time')
+# plt.grid(True, linestyle='--', alpha=0.6)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
+# # ---------------------------------------------------
 
-# ----- plot tx signal-----
-plt.figure(figsize=(10, 4))
-plt.plot(sum_tx, label='TX Signal Amplitude', color='purple', linewidth=1.5)
-plt.xlabel('Sample Index')
-plt.ylabel('Amplitude (sqrt(W))')
-plt.title('Transmitted Signal Amplitude (First Symbol)')
-plt.grid(True, linestyle='--', alpha=0.6)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# ------------------------
+# # --------------- Plot received power and amplitude ---------------
+# plt.figure(figsize=(10, 4))
+# plt.plot(original_time, pw_r_w, label='Received Power', color='green', linewidth=1.5)
+# plt.xlabel('Time (s)')
+# plt.ylabel('Received Power (dBm)')
+# plt.title('Received Power vs Time')
+# plt.grid(True, linestyle='--', alpha=0.6)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
+# # ---------------------------------------------------
 
-# ------------------ Plot rx signal -----
-plt.figure(figsize=(10, 4))
-plt.plot(sum_rx, label='RX Signal Amplitude', color='brown', linewidth=1.5)
-plt.xlabel('Sample Index')
-plt.ylabel('Amplitude (sqrt(W))')
-plt.title('Received Signal Amplitude (First Symbol)')
-plt.grid(True, linestyle='--', alpha=0.6)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# ------------------------
+# # ----- plot tx signal-----
+# plt.figure(figsize=(10, 4))
+# plt.plot(sum_tx, label='TX Signal Amplitude', color='purple', linewidth=1.5)
+# plt.xlabel('Sample Index')
+# plt.ylabel('Amplitude (sqrt(W))')
+# plt.title('Transmitted Signal Amplitude (First Symbol)')
+# plt.grid(True, linestyle='--', alpha=0.6)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
+# # ------------------------
 
-# --------------- Plot fft(phase(hmax)) ---------------
-plt.figure(figsize=(10, 4))
-plt.plot(changes, label="periodic changes", color='purple', linewidth=1.5)
-plt.xlabel('f')
-plt.ylabel('Amplitude')
-plt.title('fft(phase(hmax))')
-plt.grid(True, linestyle='--', alpha=0.6)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# ---------------------------------------------------
+# # ------------------ Plot rx signal -----
+# plt.figure(figsize=(10, 4))
+# plt.plot(sum_rx, label='RX Signal Amplitude', color='brown', linewidth=1.5)
+# plt.xlabel('Sample Index')
+# plt.ylabel('Amplitude (sqrt(W))')
+# plt.title('Received Signal Amplitude (First Symbol)')
+# plt.grid(True, linestyle='--', alpha=0.6)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
+# # ------------------------
+
+# # --------------- Plot fft(phase(hmax)) ---------------
+# plt.figure(figsize=(10, 4))
+# plt.plot(changes, label="periodic changes", color='purple', linewidth=1.5)
+# plt.xlabel('f')
+# plt.ylabel('Amplitude')
+# plt.title('fft(phase(hmax))')
+# plt.grid(True, linestyle='--', alpha=0.6)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
+# # ---------------------------------------------------
 
 
-end = time.perf_counter()
-elapsed_s = end - start
-print(f"Elapsed: {elapsed_s*1e3:.3f} ms")
+# end = time.perf_counter()
+# elapsed_s = end - start
+# print(f"Elapsed: {elapsed_s*1e3:.3f} ms")
 
 
 
