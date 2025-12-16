@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 *.mat
+*.png
+*.csv
+
 
 # Chest motion data
 Multimodal chest surface motion/
