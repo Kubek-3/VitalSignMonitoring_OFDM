@@ -32,18 +32,18 @@ def extract_phase_from_radar_file(path):
     pw_r_dBm = pw_recvd_dBm(PL_dB)                               # received power in dBm
     pw_r_w = pw_recvd_w(pw_r_dBm)                                       # received power in watts
 
-    plot_first_graphs(original_time, disp, wrapped_phase, pw_r_w)
+    #plot_first_graphs(original_time, disp, wrapped_phase, pw_r_w)
 
     # 5. Simulate OFDM radar
     h_slow, avg_profile, r_bin, phase_resp, phase_heart, p_coeff, t_slow = simulate_ofdm_radar_end_to_end(d_tot, Fs_slow)
 
-    plot_range_profile(avg_profile, r_bin)
+    #plot_range_profile(avg_profile, r_bin)
 
     # 6. Extract and detrend phase
     phase = np.unwrap(np.angle(h_slow))
     p = np.polyfit(t_slow, phase, 1)
     phase_detr = phase - np.polyval(p, t_slow)
 
-    plot_breathing_spectrum(phase_detr, Fs_slow)
+   #plot_breathing_spectrum(phase_detr, Fs_slow)
 
     return phase_detr, t_slow

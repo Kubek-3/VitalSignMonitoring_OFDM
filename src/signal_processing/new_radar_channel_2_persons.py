@@ -1,12 +1,10 @@
-import os
-from matplotlib.mlab import detrend
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import welch, find_peaks
 from scipy.fft import fft, fftshift, ifft
 from scipy.signal import butter, filtfilt
 from src.config import c, K, freqs, ups_factor, cf, TX_power_dBm, b, M, Fs_high, Nfft_time, nf
-from src.signal_processing.filters import bp_filter, lowpass_filter
+from src.signal_processing.filters import bp_filter
 from src.signal_processing.radar_model import amp
 from src.visualisation.plot_phase_signals import plot_phase_signals
 
@@ -114,7 +112,7 @@ def add_thermal_noise(signal, B, NF_dB=nf, T0=290.0):
 # ------------------------------------------------------------
 # MAIN END-TO-END RADAR SIMULATION
 # ------------------------------------------------------------
-def simulate_ofdm_radar_end_to_end(d_tot, Fs_slow, filename, output_folder):
+def simulate_ofdm_radar_end_to_end_2(d_tot, d_tot2, d_tot3, Fs_slow):
     """
     End-to-end model:
       RF (conceptual) -> baseband-equivalent channel -> radar processing -> vitals.
@@ -141,20 +139,25 @@ def simulate_ofdm_radar_end_to_end(d_tot, Fs_slow, filename, output_folder):
     # 2) Build baseband-equivalent radar channel H[n,k]
     #    τ[n] = 2 d[n] / c  (two-way delay)
     tau_1 = 2.0 * d_tot / c                     # (N_slow,)
-    #tau_2 = 2.0 * d_tot2 / c                   # (N_slow,)
+    tau_2 = 2.0 * d_tot2 / c                   # (N_slow,)
+    tau_3 = 2.0 * d_tot3 / c                   # (N_slow,)
     freqs_2d = freqs[np.newaxis, :]          # (1, K)
     tau_2d_1 = tau_1[:, np.newaxis]              # (N_slow, 1)  
-    #tau_2d_2 = tau_2[:, np.newaxis]              # (N_slow, 1)
+    tau_2d_2 = tau_2[:, np.newaxis]              # (N_slow, 1)
+    tau_2d_3 = tau_3[:, np.newaxis]              # (N_slow, 1)
     amp_2d_1 = amp(d_tot, freqs_2d)             # (N_slow, 1)
-    #amp_2d_2 = amp(d_tot2, freqs_2d)             # (N_slow, 1)
+    amp_2d_2 = amp(d_tot2, freqs_2d)             # (N_slow, 1)
+    amp_2d_3 = amp(d_tot3, freqs_2d)             # (N_slow, 1)
 
 
     # Phase = -2π f_k τ[n]  (baseband-equivalent)
     phase_2d_1 = -2.0 * np.pi * freqs_2d * tau_2d_1
-    # phase_2d_2 = -2.0 * np.pi * freqs_2d * tau_2d_2
+    phase_2d_2 = -2.0 * np.pi * freqs_2d * tau_2d_2
+    phase_2d_3 = -2.0 * np.pi * freqs_2d * tau_2d_3
     H_1 = amp_2d_1 * np.exp(1j * phase_2d_1)       # (N_slow, K)
-    #H_2 = amp_2d_2 * np.exp(1j * phase_2d_2)       # (N_slow, K)
-    H = H_1                            # superposition from two targets
+    H_2 = amp_2d_2 * np.exp(1j * phase_2d_2)       # (N_slow, K)
+    H_3 = amp_2d_3 * np.exp(1j * phase_2d_3)       # (N_slow, K)
+    H = H_1 + H_2 + H_3                            # superposition from three targets
 
     #  Conceptual RF chain:
     #  - DAC: ofdm_bb(t) (complex baseband) -> upconvert to RF
@@ -172,72 +175,89 @@ def simulate_ofdm_radar_end_to_end(d_tot, Fs_slow, filename, output_folder):
     noise_power_meas = np.mean(np.abs(noise)**2)
     snr_linear = signal_power / noise_power_meas
     snr_db_meas = 10 * np.log10(snr_linear)
-    #print(f"Measured SNR ≈ {snr_db_meas:.2f} dB")
+    print(f"Measured SNR ≈ {snr_db_meas:.2f} dB")
 
     # 4) Range processing: IFFT across subcarriers (fast-time)
     H_range = np.fft.ifft(RX_noisy / TX, axis=1)   # (N_slow, K)
     h_mag = np.abs(H_range)
 
     avg_profile = np.mean(h_mag, axis=0)
-    r_bin = np.argmax(avg_profile)
-    # peaks, props = find_peaks(
-    #     avg_profile,
-    #     height=np.max(avg_profile) * 0.3,   # threshold
-    #     distance=3                           # bins separation
-    # )
+    peaks, props = find_peaks(
+        avg_profile,
+        height=np.max(avg_profile) * 0.15,   # threshold
+        distance=3                           # bins separation
+    )
 
     # Sort strongest first
-    #peaks = peaks[np.argsort(props["peak_heights"])[::-1]]
+    peaks = peaks[np.argsort(props["peak_heights"])[::-1]]
     # print("Strongest range bin index:", r_bin)
 
     # Plot average range profile (magnitude)
     plt.figure()
     plt.plot(avg_profile)
-    plt.title("Average profile range |H_range| - " + filename)
-    plt.xlabel("Range bin index")
-    plt.ylabel("Magnitude")
+    plt.title("Średni profil zasięgu |H_range|")
+    plt.xlabel("Indeks binu zasięgu")
+    plt.ylabel("Magnituda")
     plt.grid(True)
-    out_png = os.path.join(output_folder, filename.replace(".mat", "_average_profile_range.png"))
-    plt.tight_layout()
-    plt.savefig(out_png, dpi=200)
-    plt.close()
+    plt.show()
 
     # 5) Extract slow-time complex signal at that range bin
-    h_slow = H_range[:, r_bin]      # shape (N_slow,), one person
-    # h1 = H_range[:, peaks[0]]
-    # h2 = H_range[:, peaks[1]]
+    #h_slow = H_range[:, r_bin]      # shape (N_slow,), one person
+    h1 = H_range[:, peaks[0]]
+    h2 = H_range[:, peaks[1]]
+    #h3 = H_range[:, peaks[2]]
 
-    # phase1 = np.unwrap(np.angle(h1))
-    # phase2 = np.unwrap(np.angle(h2))
+    phase1 = np.unwrap(np.angle(h1))
+    phase2 = np.unwrap(np.angle(h2))
+    #phase3 = np.unwrap(np.angle(h3))
 
 
     # 6) Phase vs slow time
-    phase_slow = np.unwrap(np.angle(h_slow))
+    #phase_slow = np.unwrap(np.angle(h_slow))
 
     t_slow = np.arange(N_slow) / Fs_slow
     #print("Slow-time observation duration (s):", t_slow[-1])
     #print("Slow-time samples (N_slow):", N_slow)
-    p_coeff = np.polyfit(t_slow, phase_slow, 1)
-    phase_detr = phase_slow - np.polyval(p_coeff, t_slow)
+    p_coeff_1 = np.polyfit(t_slow, phase1, 1)
+    phase_detr_1 = phase1 - np.polyval(p_coeff_1, t_slow)
+
+    p_coeff_2 = np.polyfit(t_slow, phase2, 1)
+    phase_detr_2 = phase2 - np.polyval(p_coeff_2, t_slow)
+
+    #p_coeff_3 = np.polyfit(t_slow, phase3, 1)
+    #phase_detr_3 = phase3 - np.polyval(p_coeff_3, t_slow)
 
     # 7) Bandpass for respiration and heart
     # Respiration: 0.1–0.5 Hz (6–30 bpm)
-    phase_for_resp = detrend(phase_detr, "linear")
-    phase_for_resp = phase_for_resp - np.mean(phase_for_resp)
-    phase_resp = lowpass_filter(phase_for_resp, Fs_slow, 0.5)
-
+    phase_resp_1 = bp_filter(phase_detr_1, Fs_slow, 0.1, 0.5)
     # Heart: 0.8–2.0 Hz (48–120 bpm)
-    phase_heart = bp_filter(phase_detr, Fs_slow, 0.8, 2.0)
+    phase_heart_1 = bp_filter(phase_detr_1, Fs_slow, 0.8, 2.0)
 
-    plot_phase_signals(t_slow, phase_detr, phase_resp, phase_heart, filename, output_folder)
+    phase_resp_2 = bp_filter(phase_detr_2, Fs_slow, 0.1, 0.5)
+    phase_heart_2 = bp_filter(phase_detr_2, Fs_slow, 0.8, 2.0)
+
+    #phase_resp_3 = bp_filter(phase_detr_3, Fs_slow, 0.1, 0.5)
+    #phase_heart_3 = bp_filter(phase_detr_3, Fs_slow, 0.8, 2.0)
+
+    plot_phase_signals(t_slow, phase_detr_1, phase_resp_1, phase_heart_1)
+    plot_phase_signals(t_slow, phase_detr_2, phase_resp_2, phase_heart_2)
+    #plot_phase_signals(t_slow, phase_detr_3, phase_resp_3, phase_heart_3)
     
     return (
-        h_slow,
+        h1,
+        h2,
+        #h3,
         avg_profile,
-        r_bin,
-        phase_resp,
-        phase_heart,
-        p_coeff,
+        peaks,
+        phase_resp_1,
+        phase_heart_1,
+        phase_resp_2,
+        phase_heart_2,
+        #phase_resp_3,
+        #phase_heart_3,
+        p_coeff_1,
+        p_coeff_2,
+        #p_coeff_3,
         t_slow,
     )
 

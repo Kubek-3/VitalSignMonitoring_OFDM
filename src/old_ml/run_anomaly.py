@@ -1,5 +1,5 @@
 import argparse
-from src.ml.inference_isoforest import detect_anomalies_from_radar_file
+from src.ml.inference_isoforest_OLD import detect_anomalies_from_radar_file
 
 def main():
     parser = argparse.ArgumentParser(description="Run anomaly detection on a radar .mat file")

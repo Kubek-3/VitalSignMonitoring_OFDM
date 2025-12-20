@@ -33,8 +33,8 @@ def pw_recvd_w(pw_r_dBm):
 def amp(d, f):
     d = np.asarray(d).reshape(-1, 1)   # distances
     f = np.asarray(f).reshape(1, -1)   # frequencies
-    print("amp() d shape:", d.shape)
-    print("amp() f shape:", f.shape)
+    # print("amp() d shape:", d.shape)
+    # print("amp() f shape:", f.shape)
     PL_dB = free_space_path_loss(d, f)
     pw_r_dBm = pw_recvd_dBm(PL_dB)
     pw_r_w = pw_recvd_w(pw_r_dBm)

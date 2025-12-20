@@ -9,14 +9,15 @@ from scipy.signal import welch
 # PARAMETERS
 # ------------------------------------------------------------
 N = 1024                # subcarriers
-Delta_f = 15e3        # subcarrier spacing
-Fs_base = 1e6         # base sampling rate
+Delta_f = 960e3        # subcarrier spacing
+Fs_base = 1e9         # base sampling rate
 M = 16                # 16-QAM
 fc = 26.5e9             # carrier
 BW = N * Delta_f      # OFDM occupied BW (approx)
-desired_Fs = 10e6     # oversampled rate
+desired_Fs = 2.5e9     # oversampled rate
 TX_power = 20        # transmit power in dbm
-TX_power_W = 10**((TX_power - 30)/10)  # in watts
+TX_power_W = 10**((TX_power - 30)/10)  # in watts``
+print("Bandwidth (GHz):", BW)
 
 # ------------------------------------------------------------
 # OVERSAMPLING
@@ -78,28 +79,60 @@ f_axis_base = np.linspace(-Fs_high/2, Fs_high/2, Nfft_spec)
 ofdm_passband = np.real(ofdm_oversampled * np.exp(1j*2*np.pi*fc*t))
 
 # Passband PSD
-spec_pass = fftshift(fft(ofdm_passband, Nfft_spec))
-Pxx_pass = (np.abs(spec_pass)**2) / (Nfft_spec * Fs_high)
-Pxx_pass_dBHz = 10*np.log10(Pxx_pass + 1e-15)
-f_axis_pass = np.linspace(-Fs_high/2, Fs_high/2, Nfft_spec)
+
+# num_symbols = 10384
+# signal = []
+
+# for _ in range(num_symbols):
+#     data = np.random.randint(0, M, N)
+#     qamSymbols = constellation[data]
+
+#     X = np.zeros(Nfft_time, dtype=complex)
+#     X[startIdx:startIdx + N] = qamSymbols
+
+#     ofdm = ifft(fftshift(X))
+#     signal.append(ofdm)
+
+# ofdm_oversampled = np.concatenate(signal)
+
+# f, Pxx = welch(
+#     ofdm_oversampled,
+#     fs=Fs_high,
+#     window='boxcar',
+#     nperseg = 10384,
+#     noverlap = 5192,
+#     return_onesided=False
+# )
+
+
+# Pxx_dBHz = 10*np.log10(Pxx + 1e-15)
+
 
 # ------------------------------------------------------------
 # PLOTS
 # ------------------------------------------------------------
 
 plt.figure(figsize=(8,4))
-plt.plot(f_axis_pass/1e6, Pxx_pass_dBHz)
-plt.xlabel("Frequency (MHz)")
+plt.plot(f_axis_pass/1e9, Pxx_pass_dBHz)
+plt.xlabel("Frequency (GHz)")
 plt.ylabel("PSD (dB/Hz)")
-plt.title(f"Passband PSD centered at {fc/1e6:.2f} MHz")
+plt.title("Passband PSD")
 plt.grid(True)
 
 plt.figure(figsize=(8,4))
-plt.plot(f_axis_pass/1e6, Pxx_pass_dBHz)
-plt.xlim([(fc - 2*BW)/1e6, (fc + 2*BW)/1e6])
-plt.xlabel("Frequency (MHz)")
+plt.plot(f_axis_pass/1e9 + fc/1e9, Pxx_pass_dBHz)
+plt.xlabel("Frequency (GHz)")
 plt.ylabel("PSD (dB/Hz)")
-plt.title("Passband PSD (zoom around fc)")
+plt.title("Passband PSD centered at 26.5 GHz")
 plt.grid(True)
+
+
+# plt.figure(figsize=(8,4))
+# plt.plot(Pxx_fc/1e9, Pxx_pass_dBHz)
+# plt.xlim([(fc - 2*BW)/1e9, (fc + 2*BW)/1e9])
+# plt.xlabel("Frequency (GHz)")
+# plt.ylabel("PSD (dB/Hz)")
+# plt.title("Passband PSD (zoom around fc)")
+# plt.grid(True)
 
 plt.show()

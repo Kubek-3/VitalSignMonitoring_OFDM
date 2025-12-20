@@ -45,7 +45,7 @@ def upsample_signal(first_samples, signal, data_fs, factor):
     t_dense = np.linspace(t[0], t[-1], factor*N, endpoint=True) # New dense time grid
     f_cub = interp1d(t, short_disp, kind='cubic',  bounds_error=False, fill_value='extrapolate')
     new_disp_m = f_cub(t_dense)
-    print("new shape:", new_disp_m.shape)
+    #print("new shape:", new_disp_m.shape)
     return new_disp_m
 
 def dist(x1, y1, x2, y2):
@@ -68,5 +68,5 @@ def chest_displacement(disp, chest_pos_x, chest_pos_y, xtx, ytx, xrx, yrx):
     d_tx = dist(t_disp, chest_pos_y, xtx, ytx)
     d_rx = dist(t_disp, chest_pos_y, xrx, yrx)
     d_tot = d_tx + d_rx                         # total path length
-    print("Max, min path length change (m):", np.max(d_tot), np.min(d_tot))
+    #print("Max, min path length change (m):", np.max(d_tot), np.min(d_tot))
     return d_tot

@@ -6,21 +6,23 @@ import pandas as pd
 import glob
 import os
 
+from src.signal_processing.chest_motion import load_chest_motion
+
 # -------------------------
 # Settings
 # -------------------------
 fs = 100   # sampling frequency (Hz)
-# input_folder = "Post Exercise"      # folder containing .mat files
-# output_csv = "BR_HR_results_Post_Exercise.csv"  # summary file
+# input_folder = "Post Exercise"                        # folder containing .mat files
+# output_csv = "BR_HR_results_Post_Exercise.csv"        # summary file
 
-# input_folder = "Irregular Breathing"      # folder containing .mat files
+# input_folder = "Irregular Breathing"                  # folder containing .mat files
 # output_csv = "BR_HR_results_Irregular_Breathing.csv"  # summary file
 
-# input_folder = "Breath Hold"      # folder containing .mat files
-# output_csv = "BR_HR_results_Breath_Hold.csv"  # summary file
+# input_folder = "Breath Hold"                          # folder containing .mat files
+# output_csv = "BR_HR_results_Breath_Hold.csv"          # summary file
 
-input_folder = "data/irregular"      # folder containing .mat files
-output_csv = "BR_HR_results_irregular_breathing.csv"  # summary file
+input_folder = "data/post_exercise"                         # folder containing .mat files
+output_csv = "BR_HR_results_post_exercise.csv"              # summary file
 
 
 results = []
@@ -67,6 +69,7 @@ for filepath in files:
     mp36 = data['mp36_s']
     ecg = mp36[2]        # channel 3
     nasal = mp36[3]      # channel 4
+    chest = load_chest_motion(filepath)     # channel 2
 
     # Compute metrics
     HR, BR, hr_peaks, br_peaks = compute_br_hr(nasal, ecg, fs)
@@ -86,21 +89,28 @@ for filepath in files:
     plt.figure(figsize=(14,6))
 
     # Nasal airflow
-    plt.subplot(2,1,1)
-    plt.plot(original_time, nasal, color='orange')
-    plt.scatter(original_time[br_peaks], nasal[br_peaks], s=20)
-    plt.xlabel("Czas (s)")
-    plt.ylabel("Amplituda Sygnału Przepływu Nosowego")
-    plt.title(f"{filename} — BR ≈ {BR:.2f} bpm")
+    plt.subplot(3,1,1)
+    plt.plot(original_time, chest, color='blue')
+    plt.xlabel("Time (s)")
+    plt.ylabel("Amplitude Chest Signal")
+    plt.title(f"{filename} — Chest Signal")
     plt.grid()
 
     # ECG
-    plt.subplot(2,1,2)
+    plt.subplot(3,1,2)
     plt.plot(original_time, ecg, color='red')
     plt.scatter(original_time[hr_peaks], ecg[hr_peaks], s=20)
-    plt.xlabel("Czas (s)")
-    plt.ylabel("Amplituda Sygnału EKG")
-    plt.title(f"{filename} — HR ≈ {HR:.2f} bpm")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Amplitude ECG Signal")
+    plt.title(f"Derived HR ≈ {HR:.2f} bpm")
+    plt.grid()
+
+    plt.subplot(3,1,3)
+    plt.plot(original_time, nasal, color='orange')
+    plt.scatter(original_time[br_peaks], nasal[br_peaks], s=20)
+    plt.xlabel("Time (s)")
+    plt.ylabel("Amplitude Nasal Airflow Signal")
+    plt.title(f"Derived BR ≈ {BR:.2f} bpm")
     plt.grid()
 
     # save as: filename.png

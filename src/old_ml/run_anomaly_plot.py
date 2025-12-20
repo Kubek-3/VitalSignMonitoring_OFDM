@@ -3,11 +3,11 @@ import os
 import joblib
 import numpy as np
 
-from src.ml.inference_isoforest import detect_anomalies_from_radar_file
+from src.ml.inference_isoforest_OLD import detect_anomalies_from_radar_file
 from src.signal_processing.phase_for_ml import extract_phase_from_radar_file
  
 from src.config import cf, Fs_slow
-from src.visualisation.plot_received_anomalies import analyze_and_plot_received
+from src.visualisation.plot_received_anomalies_OLD import analyze_and_plot_received
 
 
 def main():

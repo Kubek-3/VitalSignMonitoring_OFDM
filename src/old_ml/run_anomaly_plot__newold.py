@@ -5,15 +5,12 @@ import joblib
 from src.ml.features import extract_resp_features
 from src.ml.windowing import sliding_windows
 from src.signal_processing.phase_for_ml import extract_phase_from_radar_file
-from src.config import Fs_slow, data_fs, ups_factor
+from src.config import Fs_slow, data_fs, ups_factor, MODEL_PATH, window_sec as WIN_SEC, step_sec as STEP_SEC    
 
 # ----------------------------
 # CONFIG
 # ----------------------------
-WIN_SEC = 10.0
-STEP_SEC = 2.0
 
-MODEL_PATH = "models/isoforest_resp.pkl"
 TEST_FILE = "data/irregular/IR003.mat"
 
 # ----------------------------

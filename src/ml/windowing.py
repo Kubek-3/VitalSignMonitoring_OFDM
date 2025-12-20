@@ -1,6 +1,7 @@
 import numpy as np
+from src.config import window_sec, step_sec
 
-def sliding_windows(signal, Fs, win_sec=10.0, step_sec=2.0):
+def sliding_windows(signal, Fs):
     """
     Generate overlapping windows.
 
@@ -8,7 +9,7 @@ def sliding_windows(signal, Fs, win_sec=10.0, step_sec=2.0):
         windows: list of signal segments
         times:   center time of each window
     """
-    win_len = int(win_sec * Fs)
+    win_len = int(window_sec * Fs)
     step_len = int(step_sec * Fs)
 
     windows = []
@@ -18,5 +19,6 @@ def sliding_windows(signal, Fs, win_sec=10.0, step_sec=2.0):
         end = start + win_len
         windows.append(signal[start:end])
         times.append((start + end) / 2 / Fs)
-
+    
+    # print(times)
     return windows, np.array(times)
