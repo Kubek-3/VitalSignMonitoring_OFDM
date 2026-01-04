@@ -1,12 +1,17 @@
+from matplotlib.mlab import detrend
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import welch, find_peaks
 from scipy.fft import fft, fftshift, ifft
 from scipy.signal import butter, filtfilt
-from src.config import c, K, freqs, ups_factor, cf, TX_power_dBm, b, M, Fs_high, Nfft_time, nf
-from src.signal_processing.filters import bp_filter
+from src.config import C, FS_SLOW, K, freqs, ups_factor, cf, TX_power_dBm, b, M, Fs_high, Nfft_time, NF, chair_ref_cof, ref_cof
+from src.signal_processing.filters import bp_filter, lowpass_filter
 from src.signal_processing.radar_model import amp
+from src.visualisation.plot_breathing_spectrum import plot_breathing_spectrum
 from src.visualisation.plot_phase_signals import plot_phase_signals
+import os
+
+from src.visualisation.range_profile_two_persosn import plot_range_profile_two
 
 
 
@@ -91,7 +96,7 @@ def generate_ofdm_pilot():
     return qamSymbols, ofdm_bb
 
 
-def add_thermal_noise(signal, B, NF_dB=nf, T0=290.0):
+def add_thermal_noise(signal, B, NF_dB=NF, T0=290.0):
     """
     Add complex AWGN based on thermal noise and noise figure.
     signal shape: (N_slow, K) or similar.
@@ -112,7 +117,7 @@ def add_thermal_noise(signal, B, NF_dB=nf, T0=290.0):
 # ------------------------------------------------------------
 # MAIN END-TO-END RADAR SIMULATION
 # ------------------------------------------------------------
-def simulate_ofdm_radar_end_to_end_2(d_tot, d_tot2, d_tot3, Fs_slow):
+def simulate_ofdm_radar_end_to_end_2(d_tot, d_tot2, d_tot3, chair_tot, Fs_slow, filename, filename2, filename3, output_folder):
     """
     End-to-end model:
       RF (conceptual) -> baseband-equivalent channel -> radar processing -> vitals.
@@ -138,26 +143,44 @@ def simulate_ofdm_radar_end_to_end_2(d_tot, d_tot2, d_tot3, Fs_slow):
 
     # 2) Build baseband-equivalent radar channel H[n,k]
     #    τ[n] = 2 d[n] / c  (two-way delay)
-    tau_1 = 2.0 * d_tot / c                     # (N_slow,)
-    tau_2 = 2.0 * d_tot2 / c                   # (N_slow,)
-    tau_3 = 2.0 * d_tot3 / c                   # (N_slow,)
+    tau_1 = d_tot / C                     # (N_slow,)
+    tau_2 = d_tot2 / C                   # (N_slow,)
+    tau_3 = d_tot3 / C                   # (N_slow,)
+    tau_chair = chair_tot / C             # (N_slow,)
     freqs_2d = freqs[np.newaxis, :]          # (1, K)
     tau_2d_1 = tau_1[:, np.newaxis]              # (N_slow, 1)  
     tau_2d_2 = tau_2[:, np.newaxis]              # (N_slow, 1)
     tau_2d_3 = tau_3[:, np.newaxis]              # (N_slow, 1)
-    amp_2d_1 = amp(d_tot, freqs_2d)             # (N_slow, 1)
-    amp_2d_2 = amp(d_tot2, freqs_2d)             # (N_slow, 1)
-    amp_2d_3 = amp(d_tot3, freqs_2d)             # (N_slow, 1)
+    tau_2d_chair = tau_chair[:, np.newaxis]      # (N_slow, 1)
+    amp_2d_1 = ref_cof * amp(d_tot, freqs_2d)             # (N_slow, 1)
+    amp_2d_2 = ref_cof * amp(d_tot2, freqs_2d)             # (N_slow, 1)
+    amp_2d_3 = ref_cof * amp(d_tot3, freqs_2d)             # (N_slow, 1)
+    amp_2d_chair = chair_ref_cof * amp(chair_tot, freqs_2d)     # (N_slow, 1)
 
 
     # Phase = -2π f_k τ[n]  (baseband-equivalent)
     phase_2d_1 = -2.0 * np.pi * freqs_2d * tau_2d_1
     phase_2d_2 = -2.0 * np.pi * freqs_2d * tau_2d_2
     phase_2d_3 = -2.0 * np.pi * freqs_2d * tau_2d_3
+    phase_2d_chair = -2.0 * np.pi * freqs_2d * tau_2d_chair
     H_1 = amp_2d_1 * np.exp(1j * phase_2d_1)       # (N_slow, K)
     H_2 = amp_2d_2 * np.exp(1j * phase_2d_2)       # (N_slow, K)
     H_3 = amp_2d_3 * np.exp(1j * phase_2d_3)       # (N_slow, K)
-    H = H_1 + H_2 + H_3                            # superposition from three targets
+    H_chair = amp_2d_chair * np.exp(1j * phase_2d_chair)   # (N_slow, K)
+    H = H_1 + H_2 + H_chair                 # superposition from three targets
+
+    original_time = np.arange(N_slow) / Fs_slow
+
+    h_sum = np.sum(H, axis=1)
+    plt.figure()
+    plt.plot(original_time,h_sum)
+    plt.xlabel("Time [s]")
+    plt.ylabel("Phase [rad]")
+    plt.gca().get_yaxis().get_major_formatter().set_useOffset(False)
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_5_channel_frequency_response_vs_slow_time.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
 
     #  Conceptual RF chain:
     #  - DAC: ofdm_bb(t) (complex baseband) -> upconvert to RF
@@ -167,8 +190,52 @@ def simulate_ofdm_radar_end_to_end_2(d_tot, d_tot2, d_tot3, Fs_slow):
 
     RX_ideal = TX * H                         # (N_slow, K)
 
+    plt.figure()
+    plt.scatter(np.real(RX_ideal), np.imag(RX_ideal), s=20)
+    plt.xlabel("In-phase")
+    plt.ylabel("Quadrature")
+    plt.grid(True)
+    plt.axis("equal")
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_7_rx_constellation_ideal.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
     # 3) Add noise (thermal + NF)
     RX_noisy, noise = add_thermal_noise(RX_ideal, b, NF_dB=10.0)
+
+    #rx correcrion for plot
+    h_est = H
+    eps = 1e-12  # numerical stability
+    rx_corrected_noisy = RX_noisy / (h_est + eps)
+    rx_corrected = RX_ideal / (h_est + eps)
+
+    plt.figure()
+    plt.scatter(
+        np.real(rx_corrected),
+        np.imag(rx_corrected),
+        s=2,
+        alpha=0.5)
+    plt.xlabel("IQ")
+    plt.ylabel("Q")
+    plt.gca().get_yaxis().get_major_formatter().set_useOffset(False)
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_10_rx_ideal_corrected.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+    plt.figure()
+    plt.scatter(
+    np.real(rx_corrected_noisy),
+    np.imag(rx_corrected_noisy),
+    s=2,
+    alpha=0.5)
+    plt.xlabel("IQ")
+    plt.ylabel("Q")
+    plt.gca().get_yaxis().get_major_formatter().set_useOffset(False)
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_10_rx_noisy_corrected.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
 
     # Measured SNR
     signal_power = np.mean(np.abs(RX_ideal)**2)
@@ -192,25 +259,34 @@ def simulate_ofdm_radar_end_to_end_2(d_tot, d_tot2, d_tot3, Fs_slow):
     peaks = peaks[np.argsort(props["peak_heights"])[::-1]]
     # print("Strongest range bin index:", r_bin)
 
+
     # Plot average range profile (magnitude)
     plt.figure()
     plt.plot(avg_profile)
-    plt.title("Średni profil zasięgu |H_range|")
-    plt.xlabel("Indeks binu zasięgu")
-    plt.ylabel("Magnituda")
+    plt.xlabel("Range bin index")
+    plt.ylabel("Magnitude")
+    plt.xlim(0, 200)
     plt.grid(True)
-    plt.show()
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_" + filename2 + "_" + filename3 + "_average_profile_range.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+    print(len(peaks))
 
     # 5) Extract slow-time complex signal at that range bin
     #h_slow = H_range[:, r_bin]      # shape (N_slow,), one person
     h1 = H_range[:, peaks[0]]
-    h2 = H_range[:, peaks[1]]
-    #h3 = H_range[:, peaks[2]]
+    if len(peaks) > 1:
+        h2 = H_range[:, peaks[1]]
+        if len(peaks) > 2:
+            h3 = H_range[:, peaks[2]]
 
     phase1 = np.unwrap(np.angle(h1))
-    phase2 = np.unwrap(np.angle(h2))
-    #phase3 = np.unwrap(np.angle(h3))
-
+    if len(peaks) > 1:
+        phase2 = np.unwrap(np.angle(h2))
+        if len(peaks) > 2:
+            phase3 = np.unwrap(np.angle(h3))
 
     # 6) Phase vs slow time
     #phase_slow = np.unwrap(np.angle(h_slow))
@@ -221,45 +297,65 @@ def simulate_ofdm_radar_end_to_end_2(d_tot, d_tot2, d_tot3, Fs_slow):
     p_coeff_1 = np.polyfit(t_slow, phase1, 1)
     phase_detr_1 = phase1 - np.polyval(p_coeff_1, t_slow)
 
-    p_coeff_2 = np.polyfit(t_slow, phase2, 1)
-    phase_detr_2 = phase2 - np.polyval(p_coeff_2, t_slow)
-
-    #p_coeff_3 = np.polyfit(t_slow, phase3, 1)
-    #phase_detr_3 = phase3 - np.polyval(p_coeff_3, t_slow)
+    if len(peaks) > 1:
+        p_coeff_2 = np.polyfit(t_slow, phase2, 1)
+        phase_detr_2 = phase2 - np.polyval(p_coeff_2, t_slow)
+        if len(peaks) > 2:
+            p_coeff_3 = np.polyfit(t_slow, phase3, 1)
+            phase_detr_3 = phase3 - np.polyval(p_coeff_3, t_slow)
 
     # 7) Bandpass for respiration and heart
     # Respiration: 0.1–0.5 Hz (6–30 bpm)
-    phase_resp_1 = bp_filter(phase_detr_1, Fs_slow, 0.1, 0.5)
+    phase_for_resp_1 = detrend(phase_detr_1, "linear")
+    phase_for_resp_1 = phase_for_resp_1 - np.mean(phase_for_resp_1)
+    phase_resp_1 = lowpass_filter(phase_for_resp_1, Fs_slow, 0.5)
+
     # Heart: 0.8–2.0 Hz (48–120 bpm)
     phase_heart_1 = bp_filter(phase_detr_1, Fs_slow, 0.8, 2.0)
+    #-----------------------------------
 
-    phase_resp_2 = bp_filter(phase_detr_2, Fs_slow, 0.1, 0.5)
-    phase_heart_2 = bp_filter(phase_detr_2, Fs_slow, 0.8, 2.0)
+    # Respiration: 0.1–0.5 Hz (6–30 bpm)
+    if len(peaks) > 1:
+        phase_for_resp_2 = detrend(phase_detr_2, "linear")
+        phase_for_resp_2 = phase_for_resp_2 - np.mean(phase_for_resp_2)
+        phase_resp_2 = lowpass_filter(phase_for_resp_2, Fs_slow, 0.5)
 
-    #phase_resp_3 = bp_filter(phase_detr_3, Fs_slow, 0.1, 0.5)
-    #phase_heart_3 = bp_filter(phase_detr_3, Fs_slow, 0.8, 2.0)
+    # Heart: 0.8–2.0 Hz (48–120 bpm)
+        phase_heart_2 = bp_filter(phase_detr_2, Fs_slow, 0.8, 2.0)
+    #-----------------------------------
+        if len(peaks) > 2:
+    # Respiration: 0.1–0.5 Hz (6–30 bpm)
+            phase_for_resp_3 = detrend(phase_detr_3, "linear")
+            phase_for_resp_3 = phase_for_resp_3 - np.mean(phase_for_resp_3)
+            phase_resp_3 = lowpass_filter(phase_for_resp_3, Fs_slow, 0.5)
 
-    plot_phase_signals(t_slow, phase_detr_1, phase_resp_1, phase_heart_1)
-    plot_phase_signals(t_slow, phase_detr_2, phase_resp_2, phase_heart_2)
-    #plot_phase_signals(t_slow, phase_detr_3, phase_resp_3, phase_heart_3)
+    # Heart: 0.8–2.0 Hz (48–120 bpm)
+            phase_heart_3 = bp_filter(phase_detr_3, Fs_slow, 0.8, 2.0)
+
+    plot_phase_signals(t_slow, phase_detr_1, phase_resp_1, phase_heart_1, filename, output_folder)
+    if len(peaks) > 1:
+        plot_phase_signals(t_slow, phase_detr_2, phase_resp_2, phase_heart_2, filename2, output_folder)
+        if len(peaks) > 2:
+            plot_phase_signals(t_slow, phase_detr_3, phase_resp_3, phase_heart_3, filename3, output_folder)
     
-    return (
-        h1,
-        h2,
-        #h3,
-        avg_profile,
-        peaks,
-        phase_resp_1,
-        phase_heart_1,
-        phase_resp_2,
-        phase_heart_2,
-        #phase_resp_3,
-        #phase_heart_3,
-        p_coeff_1,
-        p_coeff_2,
-        #p_coeff_3,
-        t_slow,
-    )
+    plot_range_profile_two(avg_profile, peaks, filename, filename2, filename3, output_folder)
+
+    phase1 = np.unwrap(np.angle(h1))
+    phase_detr_1 = phase1 - np.polyval(p_coeff_1, t_slow)
+    if len(peaks) > 1:
+        phase2 = np.unwrap(np.angle(h2))
+        phase_detr_2 = phase2 - np.polyval(p_coeff_2, t_slow)  
+        if len(peaks) > 2:
+            phase3 = np.unwrap(np.angle(h3))
+            phase_detr_3 = phase3 - np.polyval(p_coeff_3, t_slow)
+        # #print("✅ Plotting breathing spectrum...")
+    plot_breathing_spectrum(phase_detr_1, FS_SLOW, filename, output_folder)
+    if len(peaks) > 1:
+        plot_breathing_spectrum(phase_detr_2, FS_SLOW, filename2, output_folder)
+        if len(peaks) > 2:
+            plot_breathing_spectrum(phase_detr_3, FS_SLOW, filename3, output_folder)
+    
+    return ()
 
 
 # ------------------------------------------------------------
@@ -280,3 +376,6 @@ if __name__ == "__main__":
     amp_example = np.ones_like(d_tot_example, dtype=float)
 
     simulate_ofdm_radar_end_to_end(d_tot_example, Fs_slow_example, amp_example)
+
+
+

@@ -28,8 +28,8 @@ from sklearn.preprocessing import StandardScaler
 # imports from your pipeline
 from src.config import (
     DATA_NORMAL, DATA_IRREG, DATA_HOLD, MODELS_PATH,
-    data_fs, ups_factor, Fs_slow, cf,
-    resp_low, resp_high, first_samples,
+    DATA_FS, ups_factor, FS_SLOW, cf,
+    RESP_LOW, resp_high, first_samples,
     xh, yh, xtx, ytx, xrx, yrx
 )
 
@@ -162,13 +162,13 @@ def train_models(save=True,
     for fpath in file_list:
         print(" Processing:", os.path.basename(fpath))
         disp = load_chest_motion(fpath)
-        disp = upsample_signal(first_samples, disp, data_fs, ups_factor)
+        disp = upsample_signal(first_samples, disp, DATA_FS, ups_factor)
         d_tot = chest_displacement(disp, xh, yh, xtx, ytx, xrx, yrx)
         phi = compute_phase(d_tot, cf)
-        phase_resp = bp_filter(phi, Fs_slow, resp_low, resp_high)
-        phase_heart = bp_filter(phi, Fs_slow, 0.8, 2.5)
+        phase_resp = bp_filter(phi, FS_SLOW, RESP_LOW, resp_high)
+        phase_heart = bp_filter(phi, FS_SLOW, 0.8, 2.5)
 
-        Xbr, Xhr, _ = extract_features_from_windows(phase_resp, phase_heart, Fs_slow,
+        Xbr, Xhr, _ = extract_features_from_windows(phase_resp, phase_heart, FS_SLOW,
                                                     win_s=br_win, step_s=step)
         if Xbr.size > 0:
             all_br.append(Xbr)
@@ -237,13 +237,13 @@ def run_inference_on_file(filepath,
         rms_ref_hr = joblib.load(os.path.join(MODELS_PATH, "rms_ref_hr.pkl"))
 
     disp = load_chest_motion(filepath)
-    disp = upsample_signal(first_samples, disp, data_fs, ups_factor)
+    disp = upsample_signal(first_samples, disp, DATA_FS, ups_factor)
     d_tot = chest_displacement(disp, xh, yh, xtx, ytx, xrx, yrx)
     phi = compute_phase(d_tot, cf)
-    phase_resp = bp_filter(phi, Fs_slow, resp_low, resp_high)
-    phase_heart = bp_filter(phi, Fs_slow, 0.8, 2.5)
+    phase_resp = bp_filter(phi, FS_SLOW, RESP_LOW, resp_high)
+    phase_heart = bp_filter(phi, FS_SLOW, 0.8, 2.5)
 
-    Xbr, Xhr, t_centers = extract_features_from_windows(phase_resp, phase_heart, Fs_slow,
+    Xbr, Xhr, t_centers = extract_features_from_windows(phase_resp, phase_heart, FS_SLOW,
                                                        win_s=br_win, step_s=step)
 
     result = {
@@ -296,7 +296,7 @@ def run_inference_on_file(filepath,
     result["anomaly_hr"] = anomaly_hr
     result["phase_resp"] = phase_resp
     result["phase_heart"] = phase_heart
-    result["t_slow"] = np.arange(len(phase_resp)) / Fs_slow
+    result["t_slow"] = np.arange(len(phase_resp)) / FS_SLOW
 
 
     # plot_anomalies(

@@ -21,8 +21,10 @@ STEP_SEC   = 2         # sliding step
 
 HR_BAND = (0.8, 2.0)   # HR frequency band (Hz)
 
-input_folder = "data/post_exercise/"
-output_csv = "BR_HR_results_window_15_post_exercise.csv"
+input_folder = "data"
+output_csv = "BR_HR_results_window_15.csv"
+output_folder = "results/baseline/short_window/"
+
 
 # ============================================================
 # FILTERS
@@ -71,6 +73,27 @@ def dominant_frequency_interp(sig, fs, f_low, f_high, nfft=8192):
         return freqs_b[k] + p * df
 
     return freqs_b[k]
+
+def estimate_rate(sig, fs, min_dist):
+    """
+    Estimate breathing rate from chest motion using smoothing + peaks.
+    Designed for signals where FFT BR fails.
+    """
+
+    # Detect breathing peaks
+    peaks, _ = find_peaks(
+        sig,
+        distance=int(min_dist * fs),                 # min ~2.5 s between breaths
+        prominence=0.2 * np.std(sig)
+    )
+
+    if len(peaks) < 2:
+        return np.nan, (np.nan, np.nan, np.nan)
+
+    intervals = np.diff(peaks) / fs
+
+    rate = 60 / np.mean(intervals)
+    return rate, (np.mean(intervals), np.min(intervals), np.max(intervals))
 
 
 # ============================================================
@@ -135,13 +158,15 @@ def extract_br_hr_features(chest, fs):
 
         # -------- BR (SMOOTHED PEAKS) --------
         BR, br_p2p = estimate_br_from_smoothed(seg_chest, fs)
+        BR_amp = np.max(seg_chest) - np.min(seg_chest)
 
         # -------- HR (FFT) --------
-        hr_hz = dominant_frequency(seg_hr, fs, *HR_BAND)
-        HR = hr_hz * 60 if not np.isnan(hr_hz) else np.nan
-        hr_p2p = peak_to_peak_stats(seg_hr, fs, min_distance_sec=0.5)
-        hr_hz_interp = dominant_frequency_interp(seg_hr, fs, *HR_BAND)
-        HR_interp = hr_hz_interp * 60 if not np.isnan(hr_hz_interp) else np.nan
+        HR, hr_p2p = estimate_rate(seg_hr, fs, min_dist=0.5)
+        # hr_hz = dominant_frequency(seg_hr, fs, *HR_BAND)
+        # HR = hr_hz * 60 if not np.isnan(hr_hz) else np.nan
+        # hr_p2p = peak_to_peak_stats(seg_hr, fs, min_distance_sec=0.5)
+        # hr_hz_interp = dominant_frequency_interp(seg_hr, fs, *HR_BAND)
+        # HR_interp = hr_hz_interp * 60 if not np.isnan(hr_hz_interp) else np.nan
 
         rows.append({
             "time_s": t_mid,
@@ -149,6 +174,7 @@ def extract_br_hr_features(chest, fs):
             "BR_p2p_mean_s": br_p2p[0],
             "BR_p2p_min_s": br_p2p[1],
             "BR_p2p_max_s": br_p2p[2],
+            "BR_amp": BR_amp,  
             "HR_bpm": HR,
             "HR_p2p_mean_s": hr_p2p[0],
             "HR_p2p_min_s": hr_p2p[1],
@@ -158,61 +184,68 @@ def extract_br_hr_features(chest, fs):
         t_axis.append(t_mid)
         BR_t.append(BR)
         HR_t.append(HR)
-        HR_t_interp.append(HR_interp)
 
-    return pd.DataFrame(rows), np.array(t_axis), np.array(BR_t), np.array(HR_t), np.array(HR_t_interp)
+    return pd.DataFrame(rows), np.array(t_axis), np.array(BR_t), np.array(HR_t)
 
 # ============================================================
 # PROCESS FILES
 # ============================================================
 
-all_results = []
 
-files = sorted(glob.glob(os.path.join(input_folder, "*.mat")))
+folders = sorted(os.listdir(input_folder))
 
-for filepath in files:
-    filename = os.path.basename(filepath)
-    print(f"Processing: {filename}")
+for folder in folders:
+    print(f"Processing folder: {folder}")
+    output_folder_current = os.path.join(output_folder, os.path.basename(folder))
+    os.makedirs(output_folder_current, exist_ok=True)
 
-    chest = load_chest_motion(filepath)
+    output_csv = f"BR_HR_results_window_{int(WINDOW_SEC)}_{os.path.basename(folder)}.csv"
+    input_folder = "data/" + os.path.basename(folder) + "/"
+    files = sorted(glob.glob(os.path.join(input_folder, "*.mat")))
+    all_results = []
+    for filepath in files:
+        filename = os.path.basename(filepath)
+        print(f"Processing: {filename}")
 
-    df, t, BR_t, HR_t, HR_t_interp = extract_br_hr_features(chest, fs)
-    df.insert(0, "file", filename)
-    all_results.append(df)
+        chest = load_chest_motion(filepath)
 
-    # ------------------ PLOTS ------------------
-    plt.figure(figsize=(12,6))
+        df, t, BR_t, HR_t = extract_br_hr_features(chest, fs)
+        df.insert(0, "file", filename)
+        all_results.append(df)
 
-    plt.subplot(3,1,1)
-    plt.title(f"Estimated Breathing Rate & Heart Rate - {filename}")
-    plt.plot(t, BR_t, marker="o")
-    plt.ylabel("BR (bpm)")
-    plt.xlabel("Time (s)")
-    plt.grid(True)
+        # ------------------ PLOTS ------------------
+        plt.figure(figsize=(12,6))
 
-    plt.subplot(3,1,2)
-    plt.plot(t, HR_t, marker="o")
-    plt.ylabel("HR (bpm)")
-    plt.xlabel("Time (s)")
-    plt.grid(True)
+        plt.subplot(2,1,1)
+        plt.title(f"Estimated Breathing Rate & Heart Rate - {filename}")
+        plt.plot(t, BR_t, marker="o")
+        plt.ylabel("BR (bpm)")
+        plt.xlabel("Time (s)")
+        plt.grid(True)
 
-    plt.subplot(3,1,3)
-    plt.plot(t, HR_t_interp, marker="o", color="orange")
-    plt.ylabel("HR interp. (bpm)")
-    plt.xlabel("Time (s)")
-    plt.grid(True)
+        plt.subplot(2,1,2)
+        plt.plot(t, HR_t, marker="o")
+        plt.ylabel("HR (bpm)")
+        plt.xlabel("Time (s)")
+        plt.grid(True)
 
-    plt.tight_layout()
-    out_png = os.path.join(input_folder, filename.replace(".mat", "_BR_HR.png"))
-    plt.savefig(out_png, dpi=200)
-    plt.close()
+        plt.tight_layout()
+        out_png = os.path.join(output_folder_current, filename.replace(".mat", "_BR_HR_baseline.png"))
+        plt.savefig(out_png, dpi=200)
+        plt.close()
 
 # ============================================================
 # SAVE CSV
 # ============================================================
 
-final_df = pd.concat(all_results, ignore_index=True)
-final_df.to_csv(output_csv, index=False)
+    final_df = pd.concat(all_results, ignore_index=True)
+    # Full CSV path
+    output_csv_path = os.path.join(output_folder, output_csv)
 
-print(f"\nSaved results to: {output_csv}")
-print(final_df.head())
+    # Save
+    final_df = pd.concat(all_results, ignore_index=True)
+    final_df.to_csv(output_csv_path, index=False)
+
+    print(f"\nSaved results to: {output_csv_path}")
+    print(final_df.head())
+

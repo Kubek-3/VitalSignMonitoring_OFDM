@@ -1,39 +1,55 @@
 from scipy.signal import hilbert, find_peaks
 import numpy as np
 
-def extract_resp_features(phase_resp, Fs):
+from src.pipeline_windows import estimate_rate
+from src.signal_processing.filters import lowpass_filter
+from src.config import FS_SLOW
+from matplotlib.mlab import detrend
+
+def extract_resp_features(phase_detr, Fs):
+    """
+    Physiology-aware respiration features.
+    """
+
+    phase_for_resp = detrend(phase_detr, "linear")
+    phase_for_resp = phase_for_resp - np.mean(phase_for_resp)
+    phase_resp = lowpass_filter(phase_for_resp, FS_SLOW, 0.5)
+
+    # Analytic signal
     analytic = hilbert(phase_resp)
     amp = np.abs(analytic)
 
-    inst_phase = np.unwrap(np.angle(analytic))
-    inst_freq = np.diff(inst_phase) * Fs / (2 * np.pi)
-    inst_freq = inst_freq[np.isfinite(inst_freq)]
-    amp = amp[:len(inst_freq)]
+    # Rate estimation
+    br, (mean_T, min_T, max_T) = estimate_rate(
+        amp,
+        FS_SLOW,
+        min_dist=2.0  # seconds (30 bpm max)
+    )
 
-    # Peak timing
-    peaks, _ = find_peaks(amp, distance=Fs*1.0)
-    if len(peaks) > 2:
-        periods = np.diff(peaks) / Fs
-        mean_period = np.mean(periods)
-        std_period = np.std(periods)
-        period_cv = std_period / (mean_period + 1e-6)
-    else:
-        mean_period = 0
-        std_period = 0
-        period_cv = 1.0
+    # Handle apnea / flat
+    if np.isnan(br):
+        br = 0.0
+        mean_T, min_T, max_T = 0.0, 0.0, 0.0
 
-   
-    p2p = np.ptp(phase_resp)
+    # Amplitude features
+    amp_mean = np.mean(amp)
+    amp_std  = np.std(amp)
+    amp_p2p  = np.ptp(amp)
+
+    # Regularity
+    period_cv = (
+        (max_T - min_T) / (mean_T + 1e-6)
+        if mean_T > 0 else 1.0
+    )
 
     features = np.array([
-        np.mean(amp),
-        np.std(amp),
-        np.mean(inst_freq),
-        np.std(inst_freq),
-        mean_period,
-        std_period,
-        period_cv,
-        p2p            # <<< ADD THIS
+        br,             # breaths per minute
+        amp_mean,
+        amp_std,
+        amp_p2p,
+        mean_T,
+        period_cv
     ])
 
     return features
+

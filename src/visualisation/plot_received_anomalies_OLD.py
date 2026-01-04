@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 from scipy.fft import rfft, rfftfreq
-from src.config import c, Fs_slow, freqs, cf, data_fs, ups_factor, window_sec as win_s, step_sec as step_s
+from src.config import C, FS_SLOW, freqs, cf, DATA_FS, ups_factor, WINDOW_SEC as win_s, step_sec as step_s
 
 
 # -----------------------------------------------
@@ -56,7 +56,7 @@ def merge_regions(indices, win_s, hop_s, min_dur=3.0):
 
 
 def phase_to_displacement(phase):
-    lam = c / cf
+    lam = C / cf
     return (lam / (2 * np.pi)) * phase
 
 
@@ -82,14 +82,14 @@ def analyze_and_plot_received(
     # -------------------------
     # 2. Respiration & heart signals
     # -------------------------
-    resp = bp_filter(phase_detr, Fs_slow, 0.1, 0.5)
-    heart = bp_filter(phase_detr, Fs_slow, 0.8, 2.5)
+    resp = bp_filter(phase_detr, FS_SLOW, 0.1, 0.5)
+    heart = bp_filter(phase_detr, FS_SLOW, 0.8, 2.5)
 
     # -------------------------
     # 3. Sliding windows
     # -------------------------
-    win = int(win_s * Fs_slow)
-    step = int(step_s * Fs_slow)
+    win = int(win_s * FS_SLOW)
+    step = int(step_s * FS_SLOW)
 
     centers = []
     p2p_list = []
@@ -97,7 +97,7 @@ def analyze_and_plot_received(
 
     for i in range(0, len(disp) - win, step):
         seg = disp[i:i+win]
-        centers.append((i + win/2) / Fs_slow)
+        centers.append((i + win/2) / FS_SLOW)
 
         # Time-domain flatness (breath-hold)
         p2p = np.ptp(seg)
@@ -124,7 +124,7 @@ def analyze_and_plot_received(
     entropy_cut = np.percentile(entropy_list, entropy_pct)
     is_irregular = entropy_list > entropy_cut
     irregular_regions = merge_regions(is_irregular, 10, 2, min_dur=3.0)
-    original_time = np.arange(len(phase_detr)) / data_fs / ups_factor
+    original_time = np.arange(len(phase_detr)) / DATA_FS / ups_factor
     print(f"Original signal duration: {original_time[-1]:.2f} s")
     # -------------------------
     # 5. Plot

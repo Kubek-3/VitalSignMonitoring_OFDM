@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.fft import fftshift, fft, ifft
 from src.config import (
-    c, cf, K, b, M, Nfft_time, Fs_high, TX_power_dBm
+    C, cf, K, b, M, Nfft_time, Fs_high, TX_power_dBm
 )
 from src.signal_processing.filters import bp_filter
 import matplotlib.pyplot as plt
@@ -139,7 +139,7 @@ def simulate_ofdm_radar_fixed(d_tot, Fs_slow):
     
     """
     N = len(d_tot)
-    tau = 2 * d_tot / c
+    tau = 2 * d_tot / C
 
     # Subcarrier frequency offsets (BASEBAND!)
     delta_f = b / K

@@ -1,8 +1,8 @@
 import numpy as np
-from src.config import c, ref_cof, TX_power_dBm, K
+from src.config import C, ref_cof, TX_power_dBm, K
 
 def compute_phase(d, f):
-    lam = c / f
+    lam = C / f
     return (2 * np.pi / lam) * d
 
 def free_space_path_loss(d, f):
@@ -14,13 +14,27 @@ def free_space_path_loss(d, f):
     Returns:
         1D array: Path loss in dB over time."""
     
-    L = (4 * np.pi / c)
-    L_dB = 20 * np.log10(d) + 20 * np.log10(f) + 20 * np.log10(L) + 20 * np.log10(ref_cof) # reflection coefficient from human included here
+    L = (4 * np.pi / C)
+    L_dB = 20 * np.log10(d) + 20 * np.log10(f) + 20 * np.log10(L)
     return L_dB
 
+def fspl_linear(d, f):
+
+    """Calculate free-space path loss in dB.
+    Args:
+        d (1D array): Path length over time.
+        f (float): Frequency.
+    Returns:
+        1D array: Path loss in dB over time."""
+    
+    L = (4 * np.pi / C)
+    L_dB = 20 * np.log10(d) + 20 * np.log10(f) + 20 * np.log10(L)
+    return 10 ** (-L_dB / 20)
+
+
 def compute_path_loss(d, f):
-    L = (4 * np.pi / c)
-    return 20*np.log10(d) + 20*np.log10(f) + 20*np.log10(L) + 20*np.log10(ref_cof)
+    L = (4 * np.pi / C)
+    return 20*np.log10(d) + 20*np.log10(f) + 20*np.log10(L)
 
 
 def pw_recvd_dBm(PL_dB):

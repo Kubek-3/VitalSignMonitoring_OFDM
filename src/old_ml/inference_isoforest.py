@@ -2,7 +2,7 @@ import numpy as np
 import joblib
 from src.ml.anomaly_features import window_features
 from src.signal_processing.phase_for_ml import extract_phase_from_radar_file
-from src.config import Fs_slow
+from src.config import FS_SLOW
 
 def detect_anomalies_from_radar_file(path):
 
@@ -13,7 +13,7 @@ def detect_anomalies_from_radar_file(path):
 
     X, centers = window_features(
         sig=phase_detr,
-        fs=Fs_slow,
+        fs=FS_SLOW,
         win_s=10,
         step_s=2,
         f_low=0.1,

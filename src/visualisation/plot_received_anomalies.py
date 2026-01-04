@@ -1,8 +1,9 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 from scipy.fft import rfft, rfftfreq
-from src.config import c, Fs_slow, freqs, cf, data_fs, ups_factor, window_sec, step_sec
+from src.config import C, FS_SLOW, freqs, cf, DATA_FS, WINDOW_SEC, STEP_SEC, RESP_LOW, RESP_HIGH
 
 
 # -----------------------------------------------
@@ -56,7 +57,7 @@ def merge_regions(indices, win_s, hop_s, min_dur=5.0):
 
 
 def phase_to_displacement(phase):
-    lam = c / cf
+    lam = C / cf
     return (lam / (2 * np.pi)) * phase
 
 
@@ -108,6 +109,8 @@ def analyze_and_plot_received(
     phase_detr,
     t_slow,
     irregular_regions,
+    filename,
+    output_folder,
     show=True,
 ):
 
@@ -119,7 +122,7 @@ def analyze_and_plot_received(
 
     # Convert to displacement
     disp = phase_to_displacement(phase_detr)
-    original_time = np.arange(len(phase_detr)) / data_fs / ups_factor
+    original_time = np.arange(len(phase_detr)) / DATA_FS
 
     # -------------------------
     # 5. Plot
@@ -129,9 +132,10 @@ def analyze_and_plot_received(
 
         # ---- 1. Displacement ----
         ax1.plot(original_time, disp * 100, color="black")
-        ax1.set_title("Chest displacement (mm, derived from OFDM radar)")
+        ax1.set_title("Chest displacement (mm, derived from OFDM radar) highlighted regions: Detected irregular breathing - " + filename)
         ax1.set_xlabel("Time (s)")
         ax1.set_ylabel("mm")
+
         ax1.tick_params(axis="x", which="both", labelbottom=True)
         ax1.grid(True)
 
@@ -162,4 +166,7 @@ def analyze_and_plot_received(
         # ax3.grid(True)
 
         plt.tight_layout()
-        plt.show()
+        out_png = os.path.join(
+            output_folder, filename.replace(".mat", "_displacement_anomalies.png")
+        )
+        plt.savefig(out_png, dpi=200)

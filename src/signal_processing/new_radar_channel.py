@@ -5,10 +5,12 @@ import matplotlib.pyplot as plt
 from scipy.signal import welch, find_peaks
 from scipy.fft import fft, fftshift, ifft
 from scipy.signal import butter, filtfilt
-from src.config import c, K, freqs, ups_factor, cf, TX_power_dBm, b, M, Fs_high, Nfft_time, nf
+from src.config import C, K, freqs, ups_factor, cf, TX_power_dBm, b, M, Fs_high, Nfft_time, NF, FS_SLOW
 from src.signal_processing.filters import bp_filter, lowpass_filter
 from src.signal_processing.radar_model import amp
 from src.visualisation.plot_phase_signals import plot_phase_signals
+from src.visualisation.range_profile import plot_range_profile
+from src.visualisation.plot_avg_profile import plot_avg_profile
 
 
 
@@ -93,7 +95,7 @@ def generate_ofdm_pilot():
     return qamSymbols, ofdm_bb
 
 
-def add_thermal_noise(signal, B, NF_dB=nf, T0=290.0):
+def add_thermal_noise(signal, B, NF_dB=NF, T0=290.0):
     """
     Add complex AWGN based on thermal noise and noise figure.
     signal shape: (N_slow, K) or similar.
@@ -135,37 +137,155 @@ def simulate_ofdm_radar_end_to_end(d_tot, Fs_slow, filename, output_folder):
     # 1) Generate one OFDM pilot + RF view
     qamSymbols, ofdm_bb = generate_ofdm_pilot()
 
+    plt.figure()
+    plt.scatter(np.real(qamSymbols), np.imag(qamSymbols), s=20)
+    plt.xlabel("In-phase")
+    plt.ylabel("Quadrature")
+    plt.axis("equal")
+    plt.grid(True)
+    plt.tight_layout()
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_6_qam_pilot_constellation.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+
+    original_time = np.arange(len(ofdm_bb)) / FS_SLOW
+
     # Frequency-domain pilot vector repeated each pulse
     TX = np.tile(qamSymbols, (N_slow, 1))     # shape (N_slow, K)
 
     # 2) Build baseband-equivalent radar channel H[n,k]
     #    τ[n] = 2 d[n] / c  (two-way delay)
-    tau_1 = 2.0 * d_tot / c                     # (N_slow,)
-    #tau_2 = 2.0 * d_tot2 / c                   # (N_slow,)
+    tau_1 = d_tot / C                     # (N_slow,)
     freqs_2d = freqs[np.newaxis, :]          # (1, K)
     tau_2d_1 = tau_1[:, np.newaxis]              # (N_slow, 1)  
-    #tau_2d_2 = tau_2[:, np.newaxis]              # (N_slow, 1)
     amp_2d_1 = amp(d_tot, freqs_2d)             # (N_slow, 1)
-    #amp_2d_2 = amp(d_tot2, freqs_2d)             # (N_slow, 1)
+
+    tau_1_pico = tau_1 * 1e9
+
+    original_time = np.arange(len(tau_1)) / Fs_slow
+    plt.plot(original_time, tau_1_pico)
+    plt.xlabel("Time [s]")
+    plt.ylabel("Two-way Delay [ns]")
+    plt.gca().get_yaxis().get_major_formatter().set_useOffset(False)
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_2_two_way_delay_vs_slow_time.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+    sum_amp = np.sum(amp_2d_1, axis=1) * 1e3
+    plt.plot(original_time, sum_amp)
+    plt.xlabel("Time [s]")
+    plt.ylabel("Amplitude [√μW]")
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_3_channel_amplitude_vs_slow_time.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
 
 
     # Phase = -2π f_k τ[n]  (baseband-equivalent)
     phase_2d_1 = -2.0 * np.pi * freqs_2d * tau_2d_1
-    # phase_2d_2 = -2.0 * np.pi * freqs_2d * tau_2d_2
-    H_1 = amp_2d_1 * np.exp(1j * phase_2d_1)       # (N_slow, K)
-    #H_2 = amp_2d_2 * np.exp(1j * phase_2d_2)       # (N_slow, K)
-    H = H_1                            # superposition from two targets
+
+    
+    plt.plot(original_time, phase_2d_1[:, K//2])
+    plt.xlabel("Time [s]")
+    plt.ylabel("Phase [rad]")
+    plt.gca().get_yaxis().get_major_formatter().set_useOffset(False)
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_4_channel_phase_vs_slow_time.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+    H = amp_2d_1 * np.exp(1j * phase_2d_1)       # (N_slow, K)
+    # h_sum = np.sum(H, axis=1)
+    plt.figure()
+    plt.plot(original_time,H)
+    plt.xlabel("Time [s]")
+    plt.ylabel("Phase [rad]")
+    plt.gca().get_yaxis().get_major_formatter().set_useOffset(False)
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_5_channel_frequency_responseNOTSUMMED_vs_slow_time.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+    h_sum = np.sum(H, axis=1)
+    plt.figure()
+    plt.plot(original_time,h_sum)
+    plt.xlabel("Time [s]")
+    plt.ylabel("Phase [rad]")
+    plt.gca().get_yaxis().get_major_formatter().set_useOffset(False)
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_5_channel_frequency_response_vs_slow_time.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
 
     #  Conceptual RF chain:
     #  - DAC: ofdm_bb(t) (complex baseband) -> upconvert to RF
     #  - Channel: delay & attenuation at RF
     #  - LNA + mixer: downconvert to complex baseband
     #  -> mathematically equivalent to applying H[n,k] to subcarriers.
-
+    
     RX_ideal = TX * H                         # (N_slow, K)
+
+    plt.figure()
+    plt.scatter(np.real(RX_ideal), np.imag(RX_ideal), s=20)
+    plt.xlabel("In-phase")
+    plt.ylabel("Quadrature")
+    plt.grid(True)
+    plt.axis("equal")
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_7_rx_constellation_ideal.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
 
     # 3) Add noise (thermal + NF)
     RX_noisy, noise = add_thermal_noise(RX_ideal, b, NF_dB=10.0)
+    TX_noisy, noise_tx = add_thermal_noise(TX, b, NF_dB=10.0)
+
+    plt.figure()
+    plt.scatter(np.real(RX_noisy), np.imag(RX_noisy), s=20)
+    plt.xlabel("In-phase")
+    plt.ylabel("Quadrature")
+    plt.grid(True)
+    plt.axis("equal")
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_9_rx_constellation_noisy.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+    #rx correcrion for plot
+    h_est = H
+    eps = 1e-12  # numerical stability
+    rx_corrected_noisy = RX_noisy / (h_est + eps)
+    rx_corrected = RX_ideal / (h_est + eps)
+
+    plt.figure()
+    plt.scatter(
+        np.real(rx_corrected),
+        np.imag(rx_corrected),
+        s=2,
+        alpha=0.5)
+    plt.xlabel("IQ")
+    plt.ylabel("Q")
+    plt.gca().get_yaxis().get_major_formatter().set_useOffset(False)
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_10_rx_ideal_corrected.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+    plt.figure()
+    plt.scatter(
+    np.real(rx_corrected_noisy),
+    np.imag(rx_corrected_noisy),
+    s=2,
+    alpha=0.5)
+    plt.xlabel("IQ")
+    plt.ylabel("Q")
+    plt.gca().get_yaxis().get_major_formatter().set_useOffset(False)
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_10_rx_noisy_corrected.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
 
     # Measured SNR
     signal_power = np.mean(np.abs(RX_ideal)**2)
@@ -178,47 +298,86 @@ def simulate_ofdm_radar_end_to_end(d_tot, Fs_slow, filename, output_folder):
     H_range = np.fft.ifft(RX_noisy / TX, axis=1)   # (N_slow, K)
     h_mag = np.abs(H_range)
 
+    # plt.figure()
+    # plt.imshow(np.abs(H_range), aspect="auto")
+    # plt.colorbar(label="Magnitude")
+    # plt.xlabel("Range Bin")
+    # plt.ylabel("Slow Time Index")
+    # plt.title("Range Map |H_range[n, r]|")
+    # out_png = os.path.join(output_folder, filename.replace(".mat", "_8_range_map.png"))
+    # plt.tight_layout()
+    # plt.savefig(out_png, dpi=200)
+    # plt.close()
+
+
     avg_profile = np.mean(h_mag, axis=0)
     r_bin = np.argmax(avg_profile)
-    # peaks, props = find_peaks(
-    #     avg_profile,
-    #     height=np.max(avg_profile) * 0.3,   # threshold
-    #     distance=3                           # bins separation
-    # )
 
-    # Sort strongest first
-    #peaks = peaks[np.argsort(props["peak_heights"])[::-1]]
-    # print("Strongest range bin index:", r_bin)
+    # Plot range profile
+    plot_range_profile(avg_profile, r_bin, filename, output_folder)
 
     # Plot average range profile (magnitude)
+    plot_avg_profile(avg_profile, filename, output_folder)
+
+    # 5) Extract slow-time complex signal at that range bin
+    h_slow = H_range[:, r_bin]      # shape (N_slow,), one person
+
+    h_micro = np.abs(h_slow) * 1e3
     plt.figure()
-    plt.plot(avg_profile)
-    plt.title("Average profile range |H_range| - " + filename)
-    plt.xlabel("Range bin index")
-    plt.ylabel("Magnitude")
-    plt.grid(True)
-    out_png = os.path.join(output_folder, filename.replace(".mat", "_average_profile_range.png"))
+    plt.plot(original_time, h_micro)
+    plt.xlabel("Time [s]")
+    plt.ylabel("Amplitude [√μW]")
+    plt.title("Slow-Time Signal at Target Range Bin")
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_11_slow_time_signal_amplitude.png"))
     plt.tight_layout()
     plt.savefig(out_png, dpi=200)
     plt.close()
 
-    # 5) Extract slow-time complex signal at that range bin
-    h_slow = H_range[:, r_bin]      # shape (N_slow,), one person
-    # h1 = H_range[:, peaks[0]]
-    # h2 = H_range[:, peaks[1]]
-
-    # phase1 = np.unwrap(np.angle(h1))
-    # phase2 = np.unwrap(np.angle(h2))
-
-
     # 6) Phase vs slow time
     phase_slow = np.unwrap(np.angle(h_slow))
 
+    plt.figure()
+    plt.plot(original_time, phase_slow)
+    plt.xlabel("Time [s]")
+    plt.ylabel("Phase (rad)") 
+    plt.title("Phase vs Slow Time")
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_12_phase_vs_slow_time_raw.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+
     t_slow = np.arange(N_slow) / Fs_slow
-    #print("Slow-time observation duration (s):", t_slow[-1])
-    #print("Slow-time samples (N_slow):", N_slow)
     p_coeff = np.polyfit(t_slow, phase_slow, 1)
     phase_detr = phase_slow - np.polyval(p_coeff, t_slow)
+
+    plt.figure()
+    plt.plot(t_slow, np.real(h_slow) * 1e3, label="Real")
+    plt.plot(t_slow, np.imag(h_slow) * 1e3, label="Imag")
+    plt.xlabel("Time [s]")
+    plt.ylabel("Amplitude [√μW]")
+    plt.title("Slow-Time Signal at Target Range Bin")
+    plt.legend()
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_13_slow_time_signal.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+
+    plt.figure()
+    plt.plot(t_slow, phase_slow, label="Raw Phase")
+    plt.plot(t_slow, phase_detr, label="Detrended Phase")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Phase (rad)")
+    plt.title("Phase vs Slow Time")
+    plt.legend()
+    plt.grid()
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_14_phase_vs_slow_time.png"))
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+
 
     # 7) Bandpass for respiration and heart
     # Respiration: 0.1–0.5 Hz (6–30 bpm)
@@ -235,6 +394,7 @@ def simulate_ofdm_radar_end_to_end(d_tot, Fs_slow, filename, output_folder):
         h_slow,
         avg_profile,
         r_bin,
+        phase_detr,
         phase_resp,
         phase_heart,
         p_coeff,

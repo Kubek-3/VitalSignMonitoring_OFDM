@@ -3,7 +3,7 @@ import glob
 import os
 import matplotlib.pyplot as plt
 from sklearn.ensemble import IsolationForest
-from src.config import Fs_slow as Fs
+from src.config import FS_SLOW as Fs
 
 # ------------------------------------------------------------
 # USER: import YOUR radar phase extraction

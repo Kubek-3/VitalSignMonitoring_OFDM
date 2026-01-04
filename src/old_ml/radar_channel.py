@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from src.config import c, K, t_snr_db, freqs
+from src.config import C, K, t_snr_db, freqs
 from src.signal_processing.filters import bp_filter
 
 def radar_channel(d_tot, Fs_slow, amp):
@@ -22,7 +22,7 @@ def radar_channel(d_tot, Fs_slow, amp):
 
     # 3) Build channel H[n,k] for a single point target whose distance varies with time
     #    τ[n] = 2 d_tot[n] / c  (two-way delay)
-    tau = 2.0 * d_tot / c   # shape (N_slow,)
+    tau = 2.0 * d_tot / C   # shape (N_slow,)
 
     # convert freqs vector into shape (1,K) for broadcasting
     freqs_2d = freqs[np.newaxis, :]          # (1, K)

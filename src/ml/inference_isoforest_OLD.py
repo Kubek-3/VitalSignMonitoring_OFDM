@@ -3,7 +3,7 @@ import joblib
 from src.ml.features import extract_resp_features
 from src.ml.windowing import sliding_windows
 from src.signal_processing.phase_for_ml import extract_phase_from_radar_file
-from src.config import Fs_slow, window_sec, step_sec, min_dur, MODEL_PATH
+from src.config import FS_SLOW, WINDOW_SEC, STEP_SEC, MIN_DUR, MODEL_PATH
 
 def windows_to_regions(anomaly_flags):
     regions = []
@@ -16,52 +16,61 @@ def windows_to_regions(anomaly_flags):
             start_idx = i
         elif not flag and in_region:
             end_idx = i - 1
-            start_t = start_idx * step_sec
-            end_t = end_idx * step_sec + window_sec
-            if end_t - start_t >= min_dur:
+            start_t = start_idx * STEP_SEC
+            end_t = end_idx * STEP_SEC + WINDOW_SEC
+            if end_t - start_t >= MIN_DUR:
                 regions.append((start_t, end_t))
             in_region = False
 
     if in_region:
         end_idx = len(anomaly_flags) - 1
-        start_t = start_idx * step_sec
-        end_t = end_idx * step_sec + window_sec
-        if end_t - start_t >= min_dur:
+        start_t = start_idx * STEP_SEC
+        end_t = end_idx * STEP_SEC + WINDOW_SEC
+        if end_t - start_t >= MIN_DUR:
             regions.append((start_t, end_t))
 
     return regions
 
 
 
-def detect_anomalies_from_radar_file(mat_path):
+def detect_anomalies_from_radar_file(mat_path, model_path):
     """
     Run Isolation Forest on radar file.
     Returns:
       t_mid, anomaly_flags, anomaly_scores
     """
+    KNN_PATH = "models/knn.pkl"
 
     # 1) Load trained model
-    model = joblib.load(MODEL_PATH)
+    if model_path == KNN_PATH:
+        knn, threshold = joblib.load(KNN_PATH)
+    else:
+        model = joblib.load(model_path)
 
     # 2) Extract phase
     phase_detr, t_slow = extract_phase_from_radar_file(mat_path)
     print(f"Loaded phase from {mat_path}, samples: {len(phase_detr)}")
 
-    windows, _ = sliding_windows(phase_detr, Fs_slow)
+    windows, _ = sliding_windows(phase_detr, FS_SLOW)
 
     X = []
 
     for w in windows:
-        feats = extract_resp_features(w, Fs_slow)
+        feats = extract_resp_features(w, FS_SLOW)
         X.append(feats)
 
     X = np.array(X)
 
     # 4) Predict
-    preds = model.predict(X)          # -1 = anomaly, 1 = normal
-    scores = model.decision_function(X)
+    if model_path == KNN_PATH:
+        distances, _ = knn.kneighbors(X)
+        scores = distances.mean(axis=1)
 
-    anomaly_flags = (preds == -1)
+        anomaly_flags = scores > threshold
+    else:
+        preds = model.predict(X)          # -1 = anomaly, 1 = normal
+        scores = model.decision_function(X)
+        anomaly_flags = (preds == -1)
 
     irregular_regions = windows_to_regions(anomaly_flags)
 

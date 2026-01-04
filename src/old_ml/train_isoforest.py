@@ -5,7 +5,7 @@ from sklearn.preprocessing import StandardScaler
 
 from src.ml.anomaly_features import window_features
 from src.signal_processing.phase_for_ml import extract_phase_from_radar_file
-from src.config import DATA_NORMAL, Fs_slow, cf   # update paths
+from src.config import DATA_NORMAL, FS_SLOW, cf   # update paths
 
 import glob
 import os
@@ -22,7 +22,7 @@ def train_isolation_forest():
 
         X, centers = window_features(
             sig=phase_detr,
-            fs=Fs_slow,
+            fs=FS_SLOW,
             win_s=10,
             step_s=2,
             f_low=0.1,

@@ -5,7 +5,7 @@ from scipy.fft import rfft
 from src.signal_processing.filters import bp_filter
 from src.ml.features import extract_resp_features
 from src.signal_processing.phase_for_ml import extract_phase_from_radar_file
-from src.config import Fs_slow, cf, c
+from src.config import FS_SLOW, cf, C
 
 MODEL_PATH = "models/isoforest_resp.pkl"
 
@@ -14,7 +14,7 @@ MODEL_PATH = "models/isoforest_resp.pkl"
 # Helper functions
 # ------------------------------------------------------------
 def phase_to_displacement(phase):
-    lam = c / cf
+    lam = C / cf
     return (lam / (2 * np.pi)) * phase
 
 
@@ -84,13 +84,13 @@ def detect_anomalies_from_radar_file(
     disp = phase_to_displacement(phase_detr)
 
     # Respiration-band phase (used for ML)
-    phase_resp = bp_filter(phase_detr, Fs_slow, 0.1, 0.5)
+    phase_resp = bp_filter(phase_detr, FS_SLOW, 0.1, 0.5)
 
     # --------------------------------------------------------
     # 3) Sliding windows
     # --------------------------------------------------------
-    win = int(window_sec * Fs_slow)
-    hop = int(hop_sec * Fs_slow)
+    win = int(window_sec * FS_SLOW)
+    hop = int(hop_sec * FS_SLOW)
 
     features = []
     p2p_vals = []
@@ -101,7 +101,7 @@ def detect_anomalies_from_radar_file(
         seg_phase = phase_resp[i:i + win]
 
         # ML features
-        features.append(extract_resp_features(seg_phase, Fs_slow))
+        features.append(extract_resp_features(seg_phase, FS_SLOW))
 
         # Flatness
         p2p_vals.append(np.ptp(seg_disp))

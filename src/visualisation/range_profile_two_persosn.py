@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from src.config import C, K, Delta_f
 
 
-def plot_range_profile(avg_profile, r_bin, filename, output_folder):
+def plot_range_profile_two(avg_profile, r_bin, filename, filename2, filename3, output_folder):
     """
     Plot range profile with detected person, matching style of Fig. 14.
     avg_profile : 1D array (K,) - averaged magnitude over slow-time
@@ -26,12 +26,14 @@ def plot_range_profile(avg_profile, r_bin, filename, output_folder):
 
 
     # ----- Distance of strongest peak -----
-    dist_detected = dist_axis[r_bin]
-    tof_detected = tof_ns[r_bin]
-    # dist_detected2 = dist_axis[r_bin[1]]
-    # tof_detected2 = tof_ns[r_bin[1]]
-    # dist_detected3 = dist_axis[r_bin[2]]
-    # tof_detected3 = tof_ns[r_bin[2]]
+    dist_detected = dist_axis[r_bin[0]]
+    tof_detected = tof_ns[r_bin[0]]
+    if len(r_bin) > 1:
+        dist_detected2 = dist_axis[r_bin[1]]
+        tof_detected2 = tof_ns[r_bin[1]]
+        if len(r_bin) > 2:
+            dist_detected3 = dist_axis[r_bin[2]]
+            tof_detected3 = tof_ns[r_bin[2]]
 
     # ----- Plot -----
     fig, ax1 = plt.subplots(figsize=(10,5))
@@ -40,21 +42,25 @@ def plot_range_profile(avg_profile, r_bin, filename, output_folder):
     ax1.plot(dist_axis, prof_norm, label="Power Profile", linewidth=2)
     ax1.set_xlabel("Distance[m]")
     ax1.set_ylabel("Normalized Amplitude")
-    ax1.set_xlim(0, 5)
+    ax1.set_xlim(0, 16)
     ax1.grid(True)
 
     # Vertical dashed red line
     ax1.axvline(dist_detected, color='red', linestyle='--',
                 label=f"Distance: {dist_detected:.2f} m")
-    # ax1.axvline(dist_detected2, color='orange', linestyle='--',
-    #            label=f"Distance 2: {dist_detected2:.2f} m")
-    # ax1.axvline(dist_detected3, color='green', linestyle='--',
-    #             label=f"Distance 3: {dist_detected3:.2f} m")
+    if len(r_bin) > 1:
+        ax1.axvline(dist_detected2, color='orange', linestyle='--',
+               label=f"Distance 2: {dist_detected2:.2f} m")
+        if len(r_bin) > 2:
+            ax1.axvline(dist_detected3, color='green', linestyle='--',
+                label=f"Distance 3: {dist_detected3:.2f} m")
 
     # Red marker at the peak
-    ax1.plot(dist_detected, prof_norm[r_bin], 'ro', markersize=10)
-    # ax1.plot(dist_detected2, prof_norm[r_bin[1]], 'o', color='orange', markersize=10)
-    # ax1.plot(dist_detected3, prof_norm[r_bin[2]], 'o', color='green', markersize=10)
+    ax1.plot(dist_detected, prof_norm[r_bin[0]], 'ro', markersize=10)
+    if len(r_bin) > 1:
+        ax1.plot(dist_detected2, prof_norm[r_bin[1]], 'o', color='orange', markersize=10)
+        if len(r_bin) > 2:
+            ax1.plot(dist_detected3, prof_norm[r_bin[2]], 'o', color='green', markersize=10)
 
     # ----- Add top x-axis (time of flight) -----
         # ---- Time-of-Flight axis ----
@@ -80,8 +86,10 @@ def plot_range_profile(avg_profile, r_bin, filename, output_folder):
     plt.close()
 
     print(f"Measured distance: {dist_detected:.3f} m")
-    #print(f"Measured distance 2: {dist_detected2:.3f} m")
-    #print(f"Measured distance 3: {dist_detected3:.3f} m")
+    if len(r_bin) > 1:
+        print(f"Measured distance 2: {dist_detected2:.3f} m")
+        if len(r_bin) > 2:
+            print(f"Measured distance 3: {dist_detected3:.3f} m")
     #print(f"Measured time of flight: {tof_detected:.2f} ns")
     #print(f"Measured time of flight 2: {tof_detected2:.2f} ns")
     #print(f"Measured time of flight 3: {tof_detected3:.2f} ns")

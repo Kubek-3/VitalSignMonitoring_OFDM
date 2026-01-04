@@ -5,7 +5,7 @@ import joblib
 from src.ml.features import extract_resp_features
 from src.ml.windowing import sliding_windows
 from src.signal_processing.phase_for_ml import extract_phase_from_radar_file
-from src.config import Fs_slow, data_fs, ups_factor, MODEL_PATH, window_sec as WIN_SEC, step_sec as STEP_SEC    
+from src.config import FS_SLOW, DATA_FS, ups_factor, MODEL_PATH, WINDOW_SEC as WIN_SEC, step_sec as STEP_SEC    
 
 # ----------------------------
 # CONFIG
@@ -23,19 +23,19 @@ model = joblib.load(MODEL_PATH)
 # ----------------------------
 phase_detr, t_slow = extract_phase_from_radar_file(TEST_FILE)
 
-windows, win_times = sliding_windows(phase_detr, Fs_slow, WIN_SEC, STEP_SEC)
+windows, win_times = sliding_windows(phase_detr, FS_SLOW, WIN_SEC, STEP_SEC)
 
 # ----------------------------
 # FEATURE + ANOMALY SCORE
 # ----------------------------
 X = np.array([
-    extract_resp_features(w, Fs_slow) for w in windows
+    extract_resp_features(w, FS_SLOW) for w in windows
 ])
 
 scores = model.decision_function(X)
 anomaly = scores < 0   # True = anomaly
 
-original_time = np.arange(len(phase_detr)) / data_fs / ups_factor
+original_time = np.arange(len(phase_detr)) / DATA_FS / ups_factor
 
 # ----------------------------
 # PLOT

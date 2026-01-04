@@ -38,34 +38,35 @@ def plot_breathing_spectrum(phase_signal, fs, filename, output_folder, fmax=1.3,
     print("Estimated heart rate:", 60*f_hr, "bpm")
     
     # Harmonics
-    harmonics = [f_br, 2*f_br, 3*f_br]
+    h = [f_br, 2*f_br, 3*f_br]
     
     # Plot
     
     fig, (ax_br, ax_hr) = plt.subplots(
         2, 1, figsize=(10, 6), sharex=False
     )
-    fig.suptitle("Frequency Spectrum of Phase Variations - " + filename)
 
-    ax_br.plot(freqs_use, spec_norm, label="Filtered FFT", linewidth=2)
+
+    ax_br.plot(freqs_use, spec_norm, label="Filtered BR FFT", linewidth=2)
     
     # Vertical dashed lines for harmonics
-    for h in harmonics:
-        if h <= fmax:
-            ax_br.axvline(h, color='red', linestyle='--', alpha=0.8,
-                        label=f"Harmonic {h:.2f} Hz")
+
+    ax_br.axvline(h[0], color='red', linestyle='--', alpha=0.8, label=f"Estimated HR: {60*f_br:.1f} bpm,\nHarmonic {h[0]:.2f} Hz")
+    ax_br.axvline(h[1], color='red', linestyle='--', alpha=0.8, label=f"Harmonic {h[1]:.2f} Hz")
+    ax_br.axvline(h[2], color='red', linestyle='--', alpha=0.8, label=f"Harmonic {h[2]:.2f} Hz")  
+            
     
     ax_br.set_xlim(0, fmax)
     ax_br.set_ylim(0, 1.1)
-    ax_br.set_xlabel("Frequency (Hz)")
+    ax_br.set_xlabel("Frequency [Hz]")
     ax_br.set_ylabel("Normalized Amplitude")
-    ax_br.set_title("Frequency Components of Phase Variations (Breathing and Harmonics)")
     ax_br.grid(True)
+    ax_br.legend(loc="upper right")
     
     # Avoid repeated labels
-    handles, labels = plt.gca().get_legend_handles_labels()
-    unique = dict(zip(labels, handles))
-    ax_br.legend(unique.values(), unique.keys(), loc="upper right")
+    # handles, labels = plt.gca().get_legend_handles_labels()
+    # unique = dict(zip(labels, handles))
+    # ax_br.legend(unique.values(), unique.keys(), loc="upper right")
 
     # ====================
     # BOTTOM: HR SPECTRUM
@@ -95,13 +96,12 @@ def plot_breathing_spectrum(phase_signal, fs, filename, output_folder, fmax=1.3,
 
     ax_hr.set_xlim(hr_band[0] - hr_offset, hr_band[1] + hr_offset)
     ax_hr.set_ylim(0, 1.1)
-    ax_hr.set_xlabel("Frequency (Hz)")
+    ax_hr.set_xlabel("Frequency [Hz]")
     ax_hr.set_ylabel("Normalized Amplitude")
-    ax_hr.set_title("Heart Rate Spectrum")
     ax_hr.grid(True)
     ax_hr.legend(loc="upper right")
     
-    out_png = os.path.join(output_folder, filename.replace(".mat", "_breath_and_hearth_spectrum.png"))
+    out_png = os.path.join(output_folder, filename.replace(".mat", "_16_breath_and_heart_spectrum.png"))
     plt.tight_layout()
     plt.savefig(out_png, dpi=200)
     plt.close()

@@ -1,5 +1,5 @@
 import numpy as np
-from src.config import window_sec, step_sec
+from src.config import WINDOW_SEC, STEP_SEC
 
 def sliding_windows(signal, Fs):
     """
@@ -9,8 +9,8 @@ def sliding_windows(signal, Fs):
         windows: list of signal segments
         times:   center time of each window
     """
-    win_len = int(window_sec * Fs)
-    step_len = int(step_sec * Fs)
+    win_len = int(WINDOW_SEC * Fs)
+    step_len = int(STEP_SEC * Fs)
 
     windows = []
     times = []
